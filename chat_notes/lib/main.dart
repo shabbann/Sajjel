@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'controllers/note_controller.dart';
+import 'controllers/theme_controller.dart';
 import 'services/database_service.dart';
-import 'views/screens/chat_screen.dart';
+import 'views/screens/chat_list_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -23,13 +24,26 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ChangeNotifierProvider(
-      create: (_) => NoteController(databaseService: DatabaseService()),
-      child: MaterialApp(
-        title: 'Chat App',
-        theme: ThemeData(primarySwatch: Colors.blue),
-        home: ChatScreen(chatId: defaultChatId),
-        debugShowCheckedModeBanner: false,
+    return MultiProvider(
+      providers: [
+        ChangeNotifierProvider(
+          create: (_) => NoteController(databaseService: DatabaseService()),
+        ),
+        ChangeNotifierProvider(
+          create: (_) => ThemeController(),
+        ),
+      ],
+      child: Consumer<ThemeController>(
+        builder: (context, themeController, _) {
+          return MaterialApp(
+            title: 'Sajjel',
+            themeMode: themeController.themeMode,
+            theme: themeController.getTheme(),
+            darkTheme: themeController.getTheme(),
+            home: ChatListScreen(),
+            debugShowCheckedModeBanner: false,
+          );
+        },
       ),
     );
   }
