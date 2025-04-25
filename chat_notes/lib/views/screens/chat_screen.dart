@@ -2,14 +2,18 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../controllers/note_controller.dart';
 import '../../models/chat_model.dart';
+import '../../models/note_model.dart';
 import '../../services/database_service.dart';
+import '../../services/preferences_service.dart';
 import '../widgets/chat_bubble.dart';
 import '../widgets/chat_input.dart';
 import '../../features/chat_management/chat_actions.dart';
 import '../../features/export/chat_export.dart';
 import '../../features/search/note_search_delegate.dart';
+import '../../features/search/global_search_delegate.dart';
 
 import './settings_screen.dart';
+import './location_map_screen.dart';
 
 class ChatScreen extends StatefulWidget {
   final String chatId;
@@ -35,6 +39,8 @@ class _ChatScreenState extends State<ChatScreen> {
       context.read<NoteController>().setCurrentChat(widget.chatId);
       _loadChats();
       _loadCurrentChatName();
+      // Save this as the last opened chat
+      PreferencesService.saveLastOpenedChat(widget.chatId);
     });
   }
 
@@ -107,16 +113,23 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
-  void _handleSubmitted(String text, List<String> tags, String? color) {
-    if (text.trim().isEmpty) return;
-    context.read<NoteController>().addNote(
-      text.trim(),
-      true,
-      tags: tags,
-      color: color,
-    );
-    _textController.clear();
-    _scrollToBottom();
+  void _handleSubmitted(String text, List<String> tags, String? color, double? latitude, double? longitude, String? locationName) {
+    if (text.isEmpty) return;
+    
+    final trimmedText = text.trim();
+    if (trimmedText.isNotEmpty) {
+      Provider.of<NoteController>(context, listen: false).addNote(
+        trimmedText, 
+        true, 
+        tags: tags,
+        color: color,
+        latitude: latitude,
+        longitude: longitude,
+        locationName: locationName,
+      );
+      _textController.clear();
+      _scrollToBottom();
+    }
   }
 
   void _scrollToBottom() {
@@ -162,7 +175,7 @@ class _ChatScreenState extends State<ChatScreen> {
                 Navigator.pop(context);
                 final exporter = ChatExport();
                 try {
-                  await exporter.shareChat(widget.chatId);
+                  await exporter.shareChat(widget.chatId, context);
                 } catch (e) {
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(content: Text('Failed to share: $e')),
@@ -219,6 +232,25 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
+  void _showGlobalSearch() {
+    showSearch(
+      context: context,
+      delegate: GlobalSearchDelegate(),
+    ).then((chatId) {
+      if (chatId != null && chatId.isNotEmpty && chatId != widget.chatId) {
+        // Save this as the last opened chat
+        PreferencesService.saveLastOpenedChat(chatId);
+        
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(
+            builder: (context) => ChatScreen(chatId: chatId),
+          ),
+        );
+      }
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -226,17 +258,30 @@ class _ChatScreenState extends State<ChatScreen> {
         title: Text(_currentChatName),
         actions: [
           IconButton(
+            icon: const Icon(Icons.search),
+            onPressed: _showGlobalSearch,
+            tooltip: 'Search across all chats',
+          ),
+          IconButton(
+            icon: const Icon(Icons.map),
+            onPressed: () {
+              _showMap(context);
+            },
+            tooltip: 'View location map',
+          ),
+          IconButton(
             icon: const Icon(Icons.tag),
             onPressed: _showTagFilter,
           ),
           IconButton(
-            icon: const Icon(Icons.search),
+            icon: const Icon(Icons.find_in_page),
             onPressed: () {
               showSearch(
                 context: context,
                 delegate: NoteSearchDelegate(chatId: widget.chatId),
               );
             },
+            tooltip: 'Search in this chat',
           ),
           IconButton(
             icon: const Icon(Icons.ios_share),
@@ -435,6 +480,52 @@ class _ChatScreenState extends State<ChatScreen> {
             onSubmitted: _handleSubmitted,
           ),
         ],
+      ),
+      floatingActionButton: Consumer<NoteController>(
+        builder: (context, controller, _) {
+          final dynamicNotes = controller.notes;
+          // Convert from List<dynamic> to List<Note>
+          final notes = dynamicNotes.map((noteObj) => noteObj as Note).toList();
+          
+          // Only show the map button if there are notes with location data
+          final hasLocationNotes = notes.any((note) => note.hasLocation);
+          
+          if (!hasLocationNotes) return const SizedBox.shrink();
+          
+          return FloatingActionButton(
+            onPressed: () => _showMap(context),
+            child: const Icon(Icons.map),
+            tooltip: 'View All Locations',
+          );
+        },
+      ),
+    );
+  }
+
+  void _showMap(BuildContext context) {
+    final noteController = Provider.of<NoteController>(context, listen: false);
+    final dynamicNotes = noteController.notes;
+    
+    // Convert from List<dynamic> to List<Note>
+    final notes = dynamicNotes.map((noteObj) => noteObj as Note).toList();
+    
+    // Check if there are any notes with location data
+    final hasLocationNotes = notes.any((note) => note.hasLocation);
+    
+    if (!hasLocationNotes) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No notes with location data in this chat')),
+      );
+      return;
+    }
+    
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => LocationMapScreen(
+          notes: notes,
+          title: 'Locations in $_currentChatName',
+        ),
       ),
     );
   }

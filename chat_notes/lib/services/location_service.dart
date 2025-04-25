@@ -1,13 +1,26 @@
 import 'package:geolocator/geolocator.dart';
 import 'package:permission_handler/permission_handler.dart';
-import 'package:shared_preferences.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:io' show Platform;
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart' show kIsWeb, debugPrint;
+import 'package:url_launcher/url_launcher.dart';
 
 class LocationService {
   static const String _lastLocationKey = 'last_location';
   static const String _locationHistoryKey = 'location_history';
   static const int _maxHistoryItems = 10;
+  
+  // Flag to track if initialization was completed
+  static bool _initialized = false;
+  
+  // Lazy initialization
+  static Future<void> ensureInitialized() async {
+    if (_initialized) return;
+    
+    // Perform minimal initialization, defer permissions request
+    // until actually needed
+    _initialized = true;
+  }
 
   static bool get isLocationSupported {
     if (kIsWeb) return false;
@@ -17,27 +30,35 @@ class LocationService {
   static Future<bool> checkLocationPermission() async {
     if (!isLocationSupported) return false;
 
-    bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
-    if (!serviceEnabled) {
-      return false;
-    }
-
-    LocationPermission permission = await Geolocator.checkPermission();
-    if (permission == LocationPermission.denied) {
-      permission = await Geolocator.requestPermission();
-      if (permission == LocationPermission.denied) {
+    try {
+      bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) {
         return false;
       }
-    }
 
-    if (permission == LocationPermission.deniedForever) {
+      LocationPermission permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+        if (permission == LocationPermission.denied) {
+          return false;
+        }
+      }
+
+      if (permission == LocationPermission.deniedForever) {
+        return false;
+      }
+
+      return true;
+    } catch (e) {
+      debugPrint('Error checking location permission: $e');
       return false;
     }
-
-    return true;
   }
 
   static Future<Position?> getCurrentLocation() async {
+    // Ensure the service is initialized
+    await ensureInitialized();
+    
     if (!isLocationSupported) {
       // Return a mock position for Windows/Web
       return Position(
@@ -49,6 +70,8 @@ class LocationService {
         heading: 0,
         speed: 0,
         speedAccuracy: 0,
+        altitudeAccuracy: 0,
+        headingAccuracy: 0,
       );
     }
 
@@ -56,13 +79,18 @@ class LocationService {
       if (!await checkLocationPermission()) {
         return null;
       }
+      
+      // Use low accuracy for faster results
       final position = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.high,
+        desiredAccuracy: LocationAccuracy.low,
       );
-      await _saveLocation(position);
+      
+      // Save location in the background without awaiting
+      _saveLocation(position);
+      
       return position;
     } catch (e) {
-      print('Error getting location: $e');
+      debugPrint('Error getting location: $e');
       return null;
     }
   }
@@ -120,6 +148,8 @@ class LocationService {
         heading: 0,
         speed: 0,
         speedAccuracy: 0,
+        altitudeAccuracy: 0,
+        headingAccuracy: 0,
       );
     }).toList();
   }
@@ -140,6 +170,8 @@ class LocationService {
       heading: 0,
       speed: 0,
       speedAccuracy: 0,
+      altitudeAccuracy: 0,
+      headingAccuracy: 0,
     );
   }
 
@@ -147,5 +179,38 @@ class LocationService {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_locationHistoryKey);
     await prefs.remove(_lastLocationKey);
+  }
+
+  static Future<bool> openLocationInMap(double latitude, double longitude, {String? label}) async {
+    try {
+      print('Trying to open maps with coordinates: $latitude, $longitude');
+      
+      // Most basic approach for Android using the geo: schema
+      final String mapUrl = "geo:0,0?q=$latitude,$longitude(${Uri.encodeComponent(label ?? 'Location')})";
+      print('Using basic map URL: $mapUrl');
+      
+      final Uri uri = Uri.parse(mapUrl);
+      
+      if (await canLaunchUrl(uri)) {
+        print('Launching URL: $uri');
+        return await launchUrl(uri, mode: LaunchMode.externalNonBrowserApplication);
+      } else {
+        print('Cannot launch URL, trying direct Google Maps URL');
+        // If that fails, try direct Google Maps URL as a fallback
+        final String googleUrl = 'https://www.google.com/maps/search/?api=1&query=$latitude,$longitude';
+        final Uri googleUri = Uri.parse(googleUrl);
+        
+        if (await canLaunchUrl(googleUri)) {
+          print('Launching Google Maps web URL');
+          return await launchUrl(googleUri, mode: LaunchMode.externalApplication);
+        }
+        
+        print('All launch attempts failed');
+        return false;
+      }
+    } catch (e) {
+      print('Error in openLocationInMap: $e');
+      return false;
+    }
   }
 } 

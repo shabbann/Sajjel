@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
 class AppLockDialog extends StatefulWidget {
+  const AppLockDialog({Key? key}) : super(key: key);
+  
   @override
   _AppLockDialogState createState() => _AppLockDialogState();
 }

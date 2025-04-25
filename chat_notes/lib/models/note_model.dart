@@ -6,6 +6,9 @@ class Note {
   final String chatId;
   final List<String> tags;
   final String? color;
+  final double? latitude;
+  final double? longitude;
+  final String? locationName;
 
   Note({
     required this.id,
@@ -15,6 +18,9 @@ class Note {
     required this.chatId,
     this.tags = const [],
     this.color,
+    this.latitude,
+    this.longitude,
+    this.locationName,
   });
 
   Map<String, dynamic> toMap() {
@@ -26,6 +32,9 @@ class Note {
       'chatId': chatId,
       'tags': tags.join(','),
       'color': color,
+      'latitude': latitude,
+      'longitude': longitude,
+      'locationName': locationName,
     };
   }
 
@@ -40,6 +49,11 @@ class Note {
           ? map['tags'].split(',')
           : [],
       color: map['color'],
+      latitude: map['latitude'] != null ? double.parse(map['latitude'].toString()) : null,
+      longitude: map['longitude'] != null ? double.parse(map['longitude'].toString()) : null,
+      locationName: map['locationName'],
     );
   }
+
+  bool get hasLocation => latitude != null && longitude != null;
 }

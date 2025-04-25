@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../models/chat_model.dart';
 import '../../services/database_service.dart';
+import '../../services/preferences_service.dart';
 
 class ChatActions {
   final BuildContext context;
@@ -8,7 +9,11 @@ class ChatActions {
 
   ChatActions(this.context);
 
-  void showChatOptions(Chat chat, Function onComplete) {
+  void showChatOptions(Chat chat, Function onComplete) async {
+    // Check if this chat is currently set as default
+    final defaultChatId = await PreferencesService.getDefaultChat();
+    final isDefault = chat.id == defaultChatId;
+
     showModalBottomSheet(
       context: context,
       builder: (context) => Container(
@@ -16,6 +21,25 @@ class ChatActions {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
+            ListTile(
+              leading: Icon(isDefault ? Icons.star : Icons.star_border),
+              title: Text(isDefault ? 'Remove default chat' : 'Set as default chat'),
+              onTap: () async {
+                if (isDefault) {
+                  await PreferencesService.saveDefaultChat(null);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Default chat removed')),
+                  );
+                } else {
+                  await PreferencesService.saveDefaultChat(chat.id);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Default chat set')),
+                  );
+                }
+                Navigator.pop(context);
+                onComplete();
+              },
+            ),
             ListTile(
               leading: const Icon(Icons.edit),
               title: const Text('Rename Chat'),

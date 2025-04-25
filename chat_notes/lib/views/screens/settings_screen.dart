@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:file_picker/file_picker.dart';
+// import 'package:file_picker/file_picker.dart'; // Removed FilePicker import
 import '../../services/database_service.dart';
+import '../../services/preferences_service.dart';
 import '../../controllers/theme_controller.dart';
 import '../dialogs/app_lock_dialog.dart';
 import '../../services/location_service.dart';
+import '../../services/file_service.dart'; // Added FileService import
 import 'map_screen.dart';
 import 'package:geolocator/geolocator.dart';
 import 'dart:io' show Platform;
@@ -34,14 +36,12 @@ class SettingsScreen extends StatelessWidget {
 
   Future<void> _restoreData(BuildContext context) async {
     try {
-      final result = await FilePicker.platform.pickFiles(
-        type: FileType.any,
-        allowMultiple: false,
-      );
+      // Using our custom FileService instead of FilePicker
+      final path = await FileService.pickImage();
       
-      if (result != null && result.files.single.path != null) {
+      if (path != null) {
         final dbService = DatabaseService();
-        final success = await dbService.restoreDatabase(result.files.single.path!);
+        final success = await dbService.restoreDatabase(path);
         
         if (success) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -70,6 +70,8 @@ class SettingsScreen extends StatelessWidget {
         padding: const EdgeInsets.all(16),
         children: [
           _buildThemeSection(context),
+          const Divider(),
+          _buildChatSettings(context),
           const Divider(),
           if (_isLocationSupported) ...[
             _buildLocationSection(context),
@@ -124,11 +126,9 @@ class SettingsScreen extends StatelessWidget {
           spacing: 8,
           runSpacing: 8,
           children: List.generate(4, (index) {
-            final colorScheme = themeController.themeMode == ThemeMode.dark
-                ? themeController._darkColorSchemes[index]
-                : themeController._colorSchemes[index];
+            final colorScheme = themeController.colorSchemes[index % themeController.colorSchemes.length];
             return InkWell(
-              onTap: () => themeController.setColorScheme(index),
+              onTap: () => themeController.setColorSchemeIndex(index),
               child: Container(
                 width: 48,
                 height: 48,
@@ -145,6 +145,53 @@ class SettingsScreen extends StatelessWidget {
               ),
             );
           }),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildChatSettings(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Chat Settings',
+          style: Theme.of(context).textTheme.titleLarge,
+        ),
+        const SizedBox(height: 16),
+        FutureBuilder<String?>(
+          future: PreferencesService.getDefaultChat(),
+          builder: (context, snapshot) {
+            final hasDefaultChat = snapshot.data != null;
+            
+            return ListTile(
+              leading: const Icon(Icons.home),
+              title: const Text('Default Chat'),
+              subtitle: Text(
+                hasDefaultChat 
+                    ? 'A default chat is set' 
+                    : 'No default chat set (will open last viewed)'
+              ),
+              trailing: hasDefaultChat ? 
+                IconButton(
+                  icon: const Icon(Icons.clear),
+                  onPressed: () async {
+                    await PreferencesService.saveDefaultChat(null);
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Default chat cleared')),
+                    );
+                    (context as Element).markNeedsBuild();
+                  },
+                ) : null,
+            );
+          },
+        ),
+        const ListTile(
+          leading: Icon(Icons.info_outline),
+          title: Text('Set Default Chat'),
+          subtitle: Text(
+            'Long-press any chat in the chat list to set or remove it as the default'
+          ),
         ),
       ],
     );
@@ -241,16 +288,6 @@ class SettingsScreen extends StatelessWidget {
           leading: const Icon(Icons.restore),
           title: const Text('Restore Data'),
           onTap: () => _restoreData(context),
-        ),
-        ListTile(
-          leading: const Icon(Icons.security),
-          title: const Text('App Lock'),
-          onTap: () {
-            showDialog(
-              context: context,
-              builder: (context) => const AppLockDialog(),
-            );
-          },
         ),
       ],
     );

@@ -1,52 +1,47 @@
 // controllers/theme_controller.dart
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../theme/app_theme.dart';
 
 class ThemeController extends ChangeNotifier {
   static const String _themeKey = 'themeMode';
   static const String _colorKey = 'colorScheme';
   
-  ThemeMode _themeMode = ThemeMode.system;
   int _colorSchemeIndex = 0;
+  ThemeMode _themeMode = ThemeMode.system;
 
+  // Getters
   ThemeMode get themeMode => _themeMode;
+  bool get isDarkMode => _themeMode == ThemeMode.dark || 
+      (_themeMode == ThemeMode.system && 
+       WidgetsBinding.instance.platformDispatcher.platformBrightness == Brightness.dark);
   int get colorSchemeIndex => _colorSchemeIndex;
 
-  final List<ColorScheme> _colorSchemes = [
-    ColorScheme.fromSeed(
-      seedColor: Colors.blue,
-      brightness: Brightness.light,
+  // Color schemes with predefined colors
+  final List<ColorScheme> colorSchemes = [
+    // Blue
+    const ColorScheme.light(
+      primary: Color(0xFF3F51B5),
+      secondary: Color(0xFF2196F3),
+      tertiary: Color(0xFF00BCD4),
     ),
-    ColorScheme.fromSeed(
-      seedColor: Colors.green,
-      brightness: Brightness.light,
+    // Green
+    const ColorScheme.light(
+      primary: Color(0xFF4CAF50),
+      secondary: Color(0xFF8BC34A),
+      tertiary: Color(0xFFCDDC39),
     ),
-    ColorScheme.fromSeed(
-      seedColor: Colors.purple,
-      brightness: Brightness.light,
+    // Purple
+    const ColorScheme.light(
+      primary: Color(0xFF673AB7),
+      secondary: Color(0xFF9C27B0),
+      tertiary: Color(0xFFE91E63),
     ),
-    ColorScheme.fromSeed(
-      seedColor: Colors.orange,
-      brightness: Brightness.light,
-    ),
-  ];
-
-  final List<ColorScheme> _darkColorSchemes = [
-    ColorScheme.fromSeed(
-      seedColor: Colors.blue,
-      brightness: Brightness.dark,
-    ),
-    ColorScheme.fromSeed(
-      seedColor: Colors.green,
-      brightness: Brightness.dark,
-    ),
-    ColorScheme.fromSeed(
-      seedColor: Colors.purple,
-      brightness: Brightness.dark,
-    ),
-    ColorScheme.fromSeed(
-      seedColor: Colors.orange,
-      brightness: Brightness.dark,
+    // Orange
+    const ColorScheme.light(
+      primary: Color(0xFFFF9800),
+      secondary: Color(0xFFFF5722),
+      tertiary: Color(0xFFF44336),
     ),
   ];
 
@@ -56,58 +51,55 @@ class ThemeController extends ChangeNotifier {
 
   Future<void> _loadThemePreference() async {
     final prefs = await SharedPreferences.getInstance();
-    _themeMode = ThemeMode.values[prefs.getInt(_themeKey) ?? ThemeMode.system.index];
+    final themeIndex = prefs.getInt(_themeKey);
+    
+    if (themeIndex != null) {
+      _themeMode = ThemeMode.values[themeIndex];
+    }
+    
     _colorSchemeIndex = prefs.getInt(_colorKey) ?? 0;
     notifyListeners();
   }
 
-  Future<void> setThemeMode(ThemeMode mode) async {
-    _themeMode = mode;
+  Future<void> _saveThemePreference() async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setInt(_themeKey, mode.index);
+    await prefs.setInt(_themeKey, _themeMode.index);
+    await prefs.setInt(_colorKey, _colorSchemeIndex);
+  }
+
+  void setThemeMode(ThemeMode mode) {
+    _themeMode = mode;
+    _saveThemePreference();
     notifyListeners();
   }
 
-  Future<void> setColorScheme(int index) async {
-    _colorSchemeIndex = index;
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setInt(_colorKey, index);
-    notifyListeners();
+  void setColorSchemeIndex(int index) {
+    if (index >= 0 && index < colorSchemes.length) {
+      _colorSchemeIndex = index;
+      _saveThemePreference();
+      notifyListeners();
+    }
   }
 
   ThemeData getTheme() {
-    final colorScheme = _themeMode == ThemeMode.dark
-        ? _darkColorSchemes[_colorSchemeIndex]
-        : _colorSchemes[_colorSchemeIndex];
-
-    return ThemeData(
-      useMaterial3: true,
-      colorScheme: colorScheme,
+    // Start with the base theme from AppTheme
+    final baseTheme = isDarkMode 
+        ? AppTheme.getDarkTheme() 
+        : AppTheme.getLightTheme();
+    
+    // Apply the selected color scheme
+    return baseTheme.copyWith(
+      colorScheme: isDarkMode
+          ? colorSchemes[_colorSchemeIndex].copyWith(brightness: Brightness.dark)
+          : colorSchemes[_colorSchemeIndex],
+      primaryColor: colorSchemes[_colorSchemeIndex].primary,
       appBarTheme: AppBarTheme(
-        backgroundColor: colorScheme.surface,
-        foregroundColor: colorScheme.onSurface,
-        elevation: 0,
+        backgroundColor: colorSchemes[_colorSchemeIndex].primary,
+        foregroundColor: Colors.white,
       ),
-      cardTheme: CardTheme(
-        elevation: 2,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
-        ),
-      ),
-      inputDecorationTheme: InputDecorationTheme(
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-        ),
-        filled: true,
-        fillColor: colorScheme.surface,
-      ),
-      elevatedButtonTheme: ElevatedButtonThemeData(
-        style: ElevatedButton.styleFrom(
-          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
-        ),
+      floatingActionButtonTheme: FloatingActionButtonThemeData(
+        backgroundColor: colorSchemes[_colorSchemeIndex].primary,
+        foregroundColor: Colors.white,
       ),
     );
   }

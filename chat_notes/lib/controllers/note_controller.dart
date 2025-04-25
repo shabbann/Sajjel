@@ -1,93 +1,95 @@
-// Modified main.dart
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
-import 'controllers/note_controller.dart';
-import 'controllers/theme_controller.dart'; // Add missing import
-import 'services/database_service.dart';
-import 'views/screens/chat_list_screen.dart'; // Import ChatListScreen
+import '../services/database_service.dart';
 import '../models/note_model.dart';
-
-void main() async {
-  WidgetsFlutterBinding.ensureInitialized();
-  
-  final databaseService = DatabaseService();
-  await databaseService.initDatabase();
-  
-  final defaultChatId = DateTime.now().toString();
-  await databaseService.createInitialChat(defaultChatId);
-  
-  runApp(MyApp(defaultChatId: defaultChatId));
-}
-
-class MyApp extends StatelessWidget {
-  final String defaultChatId;
-
-  const MyApp({super.key, required this.defaultChatId});
-
-  @override
-  Widget build(BuildContext context) {
-    return MultiProvider(
-      providers: [
-        ChangeNotifierProvider(
-          create: (_) => NoteController(databaseService: DatabaseService()),
-        ),
-        ChangeNotifierProvider(
-          create: (_) => ThemeController(), // Add ThemeController
-        ),
-      ],
-      child: Consumer<ThemeController>(
-        builder: (context, themeController, _) {
-          return MaterialApp(
-            title: 'Sajjel',
-            theme: themeController.isDarkMode 
-                ? ThemeData.dark() 
-                : ThemeData(primarySwatch: Colors.blue),
-            home: ChatListScreen(), // Start with ChatListScreen
-            debugShowCheckedModeBanner: false,
-          );
-        },
-      ),
-    );
-  }
-}
 
 class NoteController extends ChangeNotifier {
   final DatabaseService databaseService;
-  String? currentChatId;
-  List<Note> notes = [];
+  bool _isLoading = false;
+  List<dynamic> _notes = [];
+  String _currentChatId = '';
 
   NoteController({required this.databaseService});
 
-  void setCurrentChat(String chatId) {
-    currentChatId = chatId;
-    loadNotes();
-  }
+  // Getters
+  bool get isLoading => _isLoading;
+  List<dynamic> get notes => _notes;
+  String get currentChatId => _currentChatId;
 
-  Future<void> loadNotes() async {
-    if (currentChatId == null) return;
-    notes = await databaseService.getNotesByChatId(currentChatId!);
+  // Methods
+  void setLoading(bool loading) {
+    _isLoading = loading;
     notifyListeners();
   }
 
-  Future<void> addNote(String content, bool isUserNote, {List<String> tags = const [], String? color}) async {
-    if (currentChatId == null) return;
+  Future<void> loadNotes() async {
+    setLoading(true);
+    try {
+      if (_currentChatId.isNotEmpty) {
+        _notes = await databaseService.getNotesByChatId(_currentChatId);
+      } else {
+        _notes = await databaseService.getNotes();
+      }
+    } catch (e) {
+      print('Error loading notes: $e');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  void setCurrentChat(String chatId) {
+    _currentChatId = chatId;
+    loadNotes();
+  }
+
+  Future<void> addNote(
+    String content, 
+    bool isUserNote, 
+    {List<String> tags = const [], 
+    String? color,
+    double? latitude,
+    double? longitude,
+    String? locationName}) async {
+    if (_currentChatId.isEmpty) return;
     
     final note = Note(
       id: DateTime.now().toString(),
       content: content,
       timestamp: DateTime.now(),
       isUserNote: isUserNote,
-      chatId: currentChatId!,
+      chatId: _currentChatId,
       tags: tags,
       color: color,
+      latitude: latitude,
+      longitude: longitude,
+      locationName: locationName,
     );
 
     await databaseService.insertNote(note);
     await loadNotes();
   }
 
-  Future<void> updateNote(Note note) async {
-    await databaseService.updateNote(note);
+  Future<void> updateNote(Note note, {
+    String? content, 
+    List<String>? tags,
+    String? color,
+    double? latitude,
+    double? longitude,
+    String? locationName,
+  }) async {
+    final updatedNote = Note(
+      id: note.id,
+      content: content ?? note.content,
+      timestamp: note.timestamp,
+      isUserNote: note.isUserNote,
+      chatId: note.chatId,
+      tags: tags ?? note.tags,
+      color: color ?? note.color,
+      latitude: latitude ?? note.latitude,
+      longitude: longitude ?? note.longitude,
+      locationName: locationName ?? note.locationName,
+    );
+
+    await databaseService.updateNote(updatedNote);
     await loadNotes();
   }
 
@@ -95,4 +97,4 @@ class NoteController extends ChangeNotifier {
     await databaseService.deleteNote(noteId);
     await loadNotes();
   }
-}
+} 

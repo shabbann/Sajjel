@@ -1,10 +1,12 @@
 import 'dart:io';
 import 'package:path_provider/path_provider.dart';
-import 'package:share_plus/share_plus.dart';
+// import 'package:share_plus/share_plus.dart'; // Removed share_plus import
 import 'package:intl/intl.dart';
+import 'package:flutter/material.dart'; // Added for BuildContext
 import '../../models/chat_model.dart';
 import '../../models/note_model.dart';
 import '../../services/database_service.dart';
+import '../../services/share_service.dart'; // Added ShareService import
 
 class ChatExport {
   final DatabaseService _databaseService = DatabaseService();
@@ -42,7 +44,7 @@ class ChatExport {
     content.writeln();
   }
 
-  void _buildNotes(StringBuffer content, List<Note> notes) {
+  void _buildNotes(StringBuffer content, List<dynamic> notes) {
     String? currentDate;
     
     for (final note in notes) {
@@ -62,18 +64,19 @@ class ChatExport {
         content.writeln('  Tags: ${note.tags.join(', ')}');
       }
       
+      if (note.hasLocation && note.locationName != null) {
+        content.writeln('  Location: ${note.locationName}');
+      }
+      
       // Removed the reminder-related code that was causing errors
     }
   }
 
-  Future<void> shareChat(String chatId) async {
+  Future<void> shareChat(String chatId, BuildContext context) async {
     try {
       final filePath = await exportChat(chatId);
-      await Share.shareFiles(
-        [filePath],
-        subject: 'Sajjel Notes Export',
-        text: 'Here are my exported notes from Sajjel',
-      );
+      // Use our custom ShareService
+      await ShareService.shareFile(context, filePath);
     } catch (e) {
       throw Exception('Failed to share chat: ${e.toString()}');
     }

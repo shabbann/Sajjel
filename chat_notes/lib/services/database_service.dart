@@ -3,6 +3,7 @@ import 'package:path/path.dart';
 import 'package:sqflite/sqflite.dart';
 import '../models/note_model.dart';
 import '../models/chat_model.dart';
+import 'package:flutter/foundation.dart' show debugPrint;
 
 class DatabaseService {
   static Database? _database;
@@ -10,8 +11,30 @@ class DatabaseService {
 
   Future<Database> get database async {
     if (_database != null) return _database!;
-    _database = await _initDatabase();
-    return _database!;
+    try {
+      _database = await _initDatabase();
+      return _database!;
+    } catch (e) {
+      debugPrint('Error initializing database: $e');
+      // Attempt to recover by deleting and recreating the database
+      await _recoverDatabase();
+      _database = await _initDatabase();
+      return _database!;
+    }
+  }
+
+  Future<void> _recoverDatabase() async {
+    try {
+      final path = await getDatabasesPath();
+      final dbPath = join(path, 'notes.db');
+      final file = File(dbPath);
+      if (await file.exists()) {
+        await file.delete();
+        debugPrint('Deleted corrupted database file');
+      }
+    } catch (e) {
+      debugPrint('Error during database recovery: $e');
+    }
   }
 
   Future<Database> _initDatabase() async {
@@ -19,8 +42,17 @@ class DatabaseService {
     return openDatabase(
       join(path, 'notes.db'),
       onCreate: _createDb,
+      onUpgrade: _onUpgrade,
       version: _databaseVersion,
+      singleInstance: true,
     );
+  }
+
+  Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
+    if (oldVersion < newVersion) {
+      // Handle future migrations here
+      await _createDb(db, newVersion);
+    }
   }
 
   Future<void> _createDb(Database db, int version) async {
@@ -32,7 +64,10 @@ class DatabaseService {
         isUserNote INTEGER,
         chatId TEXT,
         tags TEXT,
-        color TEXT
+        color TEXT,
+        latitude REAL,
+        longitude REAL,
+        locationName TEXT
       )
     ''');
     
@@ -46,20 +81,33 @@ class DatabaseService {
   }
 
   Future<void> initDatabase() async {
-    await database;
+    try {
+      // Just initialize the connection, don't perform any operations yet
+      await database;
+      debugPrint('Database initialized successfully');
+    } catch (e) {
+      debugPrint('Error initializing database: $e');
+      // Try to recover
+      await _recoverDatabase();
+    }
   }
 
   Future<void> createInitialChat(String chatId) async {
     final db = await database;
-    final count = Sqflite.firstIntValue(await db.rawQuery('SELECT COUNT(*) FROM chats'));
     
-    if (count == 0) {
-      await insertChat(Chat(
-        id: chatId,
-        name: 'My First Chat',
-        createdAt: DateTime.now(),
-      ));
-    }
+    return await db.transaction((txn) async {
+      final count = Sqflite.firstIntValue(
+        await txn.rawQuery('SELECT COUNT(*) FROM chats LIMIT 1')
+      );
+      
+      if (count == 0 || count == null) {
+        await txn.insert('chats', {
+          'id': chatId,
+          'name': 'My First Chat',
+          'createdAt': DateTime.now().toIso8601String(),
+        });
+      }
+    });
   }
 
   Future<void> insertNote(Note note) async {
@@ -67,7 +115,7 @@ class DatabaseService {
     await db.insert('notes', note.toMap());
   }
 
-  Future<List<Note>> getNotesByChatId(String chatId) async {
+  Future<List<dynamic>> getNotesByChatId(String chatId) async {
     final db = await database;
     final maps = await db.query(
       'notes',
@@ -143,6 +191,37 @@ class DatabaseService {
     return maps.map((map) => Note.fromMap(map)).toList();
   }
 
+  Future<List<Note>> searchAllNotes(String query) async {
+    final db = await database;
+    final maps = await db.query(
+      'notes',
+      where: 'content LIKE ?',
+      whereArgs: ['%$query%'],
+      orderBy: 'timestamp DESC',
+    );
+    return maps.map((map) => Note.fromMap(map)).toList();
+  }
+
+  Future<Map<String, String>> getChatNames(List<String> chatIds) async {
+    final db = await database;
+    final result = <String, String>{};
+    
+    for (final chatId in chatIds) {
+      final maps = await db.query(
+        'chats', 
+        columns: ['name'],
+        where: 'id = ?',
+        whereArgs: [chatId],
+      );
+      
+      if (maps.isNotEmpty) {
+        result[chatId] = maps.first['name'] as String;
+      }
+    }
+    
+    return result;
+  }
+
   Future<String> backupDatabase() async {
     final db = await database;
     await db.close();
@@ -189,5 +268,11 @@ class DatabaseService {
       print('Error restoring database: $e');
       return false;
     }
+  }
+
+  Future<List<dynamic>> getNotes() async {
+    final db = await database;
+    final results = await db.query('notes');
+    return results.map((row) => Note.fromMap(row)).toList();
   }
 }
