@@ -9,6 +9,89 @@ class ChatActions {
 
   ChatActions(this.context);
 
+  // Static methods for direct access without instantiation
+  static Future<void> renameChatDialog(
+    BuildContext context, 
+    String chatId, 
+    String currentName, 
+    Function onComplete
+  ) async {
+    final databaseService = DatabaseService();
+    final TextEditingController nameController = TextEditingController(text: currentName);
+    
+    return showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Rename Chat'),
+        content: TextField(
+          controller: nameController,
+          decoration: const InputDecoration(
+            hintText: 'Enter new name',
+          ),
+          autofocus: true,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () async {
+              if (nameController.text.trim().isNotEmpty) {
+                final chats = await databaseService.getChats();
+                final chat = chats.firstWhere((c) => c.id == chatId);
+                
+                final updatedChat = Chat(
+                  id: chat.id,
+                  name: nameController.text.trim(),
+                  createdAt: chat.createdAt,
+                );
+                await databaseService.updateChat(updatedChat);
+                Navigator.pop(context);
+                onComplete();
+              }
+            },
+            child: const Text('Rename'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  static Future<bool> confirmChatDelete(
+    BuildContext context,
+    String chatId,
+    String chatName,
+  ) async {
+    final databaseService = DatabaseService();
+    bool deleted = false;
+    
+    await showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete Chat'),
+        content: Text('Are you sure you want to delete "$chatName"? This action cannot be undone.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () async {
+              await databaseService.deleteChat(chatId);
+              deleted = true;
+              Navigator.pop(context, true);
+            },
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    
+    return deleted;
+  }
+
   void showChatOptions(Chat chat, Function onComplete) async {
     // Check if this chat is currently set as default
     final defaultChatId = await PreferencesService.getDefaultChat();

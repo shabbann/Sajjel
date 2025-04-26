@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../controllers/note_controller.dart';
+import '../../controllers/theme_controller.dart';
 import '../../models/chat_model.dart';
 import '../../models/note_model.dart';
 import '../../services/database_service.dart';
@@ -14,6 +15,7 @@ import '../../features/search/global_search_delegate.dart';
 
 import './settings_screen.dart';
 import './location_map_screen.dart';
+import './chat_list_screen.dart';
 
 class ChatScreen extends StatefulWidget {
   final String chatId;
@@ -31,6 +33,7 @@ class _ChatScreenState extends State<ChatScreen> {
   List<Chat> _chats = [];
   String _currentChatName = 'Sajjel';
   List<String> _selectedTags = [];
+  final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
 
   @override
   void initState() {
@@ -254,278 +257,357 @@ class _ChatScreenState extends State<ChatScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      key: _scaffoldKey,
       appBar: AppBar(
-        title: Text(_currentChatName),
+        leading: IconButton(
+          icon: Icon(Icons.menu),
+          onPressed: () {
+            _scaffoldKey.currentState?.openDrawer();
+          },
+        ),
+        title: Row(
+          children: [
+            Expanded(
+              child: Text(
+                _currentChatName,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ],
+        ),
         actions: [
+          if (_selectedTags.isNotEmpty)
+            IconButton(
+              icon: const Icon(Icons.filter_list),
+              tooltip: 'Filters active',
+              onPressed: _showTagFilter,
+            ),
           IconButton(
             icon: const Icon(Icons.search),
-            onPressed: _showGlobalSearch,
-            tooltip: 'Search across all chats',
-          ),
-          IconButton(
-            icon: const Icon(Icons.map),
-            onPressed: () {
-              _showMap(context);
-            },
-            tooltip: 'View location map',
-          ),
-          IconButton(
-            icon: const Icon(Icons.tag),
-            onPressed: _showTagFilter,
-          ),
-          IconButton(
-            icon: const Icon(Icons.find_in_page),
+            tooltip: 'Search in this chat',
             onPressed: () {
               showSearch(
                 context: context,
                 delegate: NoteSearchDelegate(chatId: widget.chatId),
               );
             },
-            tooltip: 'Search in this chat',
-          ),
-          IconButton(
-            icon: const Icon(Icons.ios_share),
-            onPressed: _showExportOptions,
           ),
           PopupMenuButton<String>(
             onSelected: (value) async {
-              final currentChat = _chats.firstWhere((chat) => chat.id == widget.chatId);
               switch (value) {
-                case 'rename':
-                  ChatActions(context).showChatOptions(
-                    currentChat,
-                    () async {
-                      await _loadChats();
-                      await _loadCurrentChatName();
+                case 'edit':
+                  await ChatActions.renameChatDialog(
+                    context,
+                    widget.chatId,
+                    _currentChatName,
+                    () {
+                      _loadCurrentChatName();
                     },
                   );
                   break;
+                case 'export':
+                  _showExportOptions();
+                  break;
                 case 'delete':
-                  final deleted = await ChatActions(context).deleteChat(currentChat);
-                  if (deleted && mounted) {
-                    await _loadChats();
-                    if (_chats.isNotEmpty) {
-                      Navigator.pushReplacement(
-                        context,
+                  final shouldDelete = await ChatActions.confirmChatDelete(
+                    context,
+                    widget.chatId,
+                    _currentChatName,
+                  );
+                  if (shouldDelete && mounted) {
+                    final navigator = Navigator.of(context);
+                    final chats = await _databaseService.getChats();
+                    final remainingChats = chats.where((c) => c.id != widget.chatId).toList();
+                    
+                    if (remainingChats.isNotEmpty) {
+                      navigator.pushReplacement(
                         MaterialPageRoute(
-                          builder: (context) => ChatScreen(chatId: _chats.first.id),
+                          builder: (context) => ChatScreen(chatId: remainingChats.first.id),
+                        ),
+                      );
+                    } else {
+                      navigator.pushReplacement(
+                        MaterialPageRoute(
+                          builder: (context) => const ChatListScreen(),
                         ),
                       );
                     }
                   }
                   break;
+                case 'settings':
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => const SettingsScreen(),
+                    ),
+                  );
+                  break;
+                case 'map':
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => LocationMapScreen(
+                        notes: Provider.of<NoteController>(context, listen: false).notes.cast<Note>(),
+                        title: 'Chat Locations',
+                      ),
+                    ),
+                  );
+                  break;
               }
             },
-            itemBuilder: (BuildContext context) => <PopupMenuEntry<String>>[
+            itemBuilder: (BuildContext context) => [
               const PopupMenuItem<String>(
-                value: 'rename',
-                child: ListTile(
-                  leading: Icon(Icons.edit),
-                  title: Text('Rename Chat'),
-                  contentPadding: EdgeInsets.zero,
+                value: 'edit',
+                child: Row(
+                  children: [
+                    Icon(Icons.edit, size: 20),
+                    SizedBox(width: 8),
+                    Text('Rename Chat'),
+                  ],
+                ),
+              ),
+              const PopupMenuItem<String>(
+                value: 'export',
+                child: Row(
+                  children: [
+                    Icon(Icons.file_download, size: 20),
+                    SizedBox(width: 8),
+                    Text('Export Chat'),
+                  ],
+                ),
+              ),
+              const PopupMenuItem<String>(
+                value: 'map',
+                child: Row(
+                  children: [
+                    Icon(Icons.map, size: 20),
+                    SizedBox(width: 8),
+                    Text('View on Map'),
+                  ],
                 ),
               ),
               const PopupMenuItem<String>(
                 value: 'delete',
-                child: ListTile(
-                  leading: Icon(Icons.delete, color: Colors.red),
-                  title: Text('Delete Chat', style: TextStyle(color: Colors.red)),
-                  contentPadding: EdgeInsets.zero,
+                child: Row(
+                  children: [
+                    Icon(Icons.delete, size: 20, color: Colors.red),
+                    SizedBox(width: 8),
+                    Text('Delete Chat', style: TextStyle(color: Colors.red)),
+                  ],
+                ),
+              ),
+              const PopupMenuItem<String>(
+                value: 'settings',
+                child: Row(
+                  children: [
+                    Icon(Icons.settings, size: 20),
+                    SizedBox(width: 8),
+                    Text('Settings'),
+                  ],
                 ),
               ),
             ],
           ),
         ],
       ),
-      drawer: Drawer(
-        child: Column(
-          children: [
-            DrawerHeader(
-              decoration: const BoxDecoration(
-                color: Colors.black,
-              ),
-              child: Center(
-                child: Text(
-                  'Sajjel',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 24,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ),
-            ),
-            Expanded(
-              child: ListView.builder(
-                itemCount: _chats.length,
-                itemBuilder: (context, index) {
-                  final chat = _chats[index];
-                  return ListTile(
-                    leading: CircleAvatar(
-                      backgroundColor: Colors.black,
-                      child: Text(
-                        chat.name.isNotEmpty ? chat.name[0].toUpperCase() : '?',
-                        style: const TextStyle(color: Colors.white),
-                      ),
-                    ),
-                    title: Text(chat.name),
-                    subtitle: const Text('Long press for options'),
-                    selected: chat.id == widget.chatId,
-                    onTap: () {
-                      if (chat.id != widget.chatId) {
-                        Navigator.pushReplacement(
-                          context,
-                          MaterialPageRoute(
-                            builder: (context) => ChatScreen(chatId: chat.id),
-                          ),
-                        );
-                      } else {
-                        Navigator.pop(context);
-                      }
-                    },
-                    onLongPress: () {
-                      ChatActions(context).showChatOptions(
-                        chat,
-                        () async {
-                          await _loadChats();
-                          if (chat.id == widget.chatId) {
-                            await _loadCurrentChatName();
-                          }
-                        },
-                      );
-                    },
-                  );
-                },
-              ),
-            ),
-            const Divider(),
-            ListTile(
-              leading: const Icon(Icons.add),
-              title: const Text('New Chat'),
-              onTap: () {
-                Navigator.pop(context);
-                _createNewChat();
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.settings),
-              title: const Text('Settings'),
-              onTap: () {
-                Navigator.pop(context);
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (context) => const SettingsScreen()),
-                );
-              },
-            ),
-          ],
-        ),
-      ),
+      drawer: _buildDrawer(),
       body: Column(
         children: [
-          if (_selectedTags.isNotEmpty)
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              child: Wrap(
-                spacing: 8,
-                children: _selectedTags.map((tag) {
-                  return Chip(
-                    label: Text(tag),
-                    onDeleted: () {
-                      setState(() {
-                        _selectedTags.remove(tag);
-                      });
-                    },
-                  );
-                }).toList(),
-              ),
-            ),
           Expanded(
             child: Consumer<NoteController>(
-              builder: (context, controller, _) {
-                if (controller.isLoading) {
-                  return const Center(child: CircularProgressIndicator());
-                }
-                if (controller.notes.isEmpty) {
-                  return Center(
-                    child: Text(
-                      'Start writing your notes...',
-                      style: TextStyle(
-                        color: Colors.grey[600],
-                        fontSize: 16,
-                      ),
-                    ),
-                  );
-                }
-
-                final filteredNotes = _selectedTags.isEmpty
+              builder: (context, controller, child) {
+                final notes = _selectedTags.isEmpty
                     ? controller.notes
                     : controller.notes.where((note) {
                         return note.tags.any((tag) => _selectedTags.contains(tag));
                       }).toList();
+                
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                  if (controller.hasNewNote) {
+                    _scrollToBottom();
+                    controller.resetNewNoteFlag();
+                  }
+                });
 
                 return ListView.builder(
                   controller: _scrollController,
-                  padding: const EdgeInsets.all(8.0),
-                  itemCount: filteredNotes.length,
+                  itemCount: notes.length,
                   itemBuilder: (context, index) {
-                    return ChatBubble(note: filteredNotes[index]);
+                    final note = notes[index];
+                    return ChatBubble(
+                      note: note,
+                      onDeleted: () {
+                        controller.deleteNote(note.id);
+                      },
+                    );
                   },
                 );
               },
             ),
           ),
           ChatInput(
-            controller: _textController,
+            textController: _textController,
             onSubmitted: _handleSubmitted,
           ),
         ],
       ),
-      floatingActionButton: Consumer<NoteController>(
-        builder: (context, controller, _) {
-          final dynamicNotes = controller.notes;
-          // Convert from List<dynamic> to List<Note>
-          final notes = dynamicNotes.map((noteObj) => noteObj as Note).toList();
-          
-          // Only show the map button if there are notes with location data
-          final hasLocationNotes = notes.any((note) => note.hasLocation);
-          
-          if (!hasLocationNotes) return const SizedBox.shrink();
-          
-          return FloatingActionButton(
-            onPressed: () => _showMap(context),
-            child: const Icon(Icons.map),
-            tooltip: 'View All Locations',
-          );
-        },
+      floatingActionButton: FloatingActionButton(
+        onPressed: _createNewChat,
+        tooltip: 'New Chat',
+        child: const Icon(Icons.add),
       ),
     );
   }
 
-  void _showMap(BuildContext context) {
-    final noteController = Provider.of<NoteController>(context, listen: false);
-    final dynamicNotes = noteController.notes;
-    
-    // Convert from List<dynamic> to List<Note>
-    final notes = dynamicNotes.map((noteObj) => noteObj as Note).toList();
-    
-    // Check if there are any notes with location data
-    final hasLocationNotes = notes.any((note) => note.hasLocation);
-    
-    if (!hasLocationNotes) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('No notes with location data in this chat')),
-      );
-      return;
-    }
-    
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => LocationMapScreen(
-          notes: notes,
-          title: 'Locations in $_currentChatName',
-        ),
+  Widget _buildDrawer() {
+    return Drawer(
+      child: Column(
+        children: [
+          DrawerHeader(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: [
+                  Theme.of(context).primaryColor,
+                  Theme.of(context).primaryColor.withOpacity(0.7),
+                ],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      width: 60,
+                      height: 60,
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.2),
+                        borderRadius: BorderRadius.circular(15),
+                      ),
+                      child: Center(
+                        child: Text(
+                          'S',
+                          style: TextStyle(
+                            fontSize: 32,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ),
+                    ),
+                    SizedBox(width: 12),
+                    Text(
+                      'Sajjel',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 24,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+                SizedBox(height: 12),
+                Text(
+                  'Smart Notes with Location',
+                  style: TextStyle(
+                    color: Colors.white70,
+                    fontSize: 14,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Expanded(
+            child: ListView(
+              padding: EdgeInsets.zero,
+              children: [
+                ListTile(
+                  leading: Icon(Icons.search),
+                  title: Text('Search All Notes'),
+                  onTap: () {
+                    Navigator.pop(context);
+                    _showGlobalSearch();
+                  },
+                ),
+                ListTile(
+                  leading: Icon(Icons.note_alt_outlined),
+                  title: Text('All Chats'),
+                  onTap: () {
+                    Navigator.pop(context);
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => ChatListScreen(),
+                      ),
+                    );
+                  },
+                ),
+                ListTile(
+                  leading: Icon(Icons.map),
+                  title: Text('Location Map'),
+                  onTap: () {
+                    Navigator.pop(context);
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => LocationMapScreen(
+                          notes: Provider.of<NoteController>(context, listen: false).notes.cast<Note>(),
+                          title: 'Location Map',
+                        ),
+                      ),
+                    );
+                  },
+                ),
+                ListTile(
+                  leading: Icon(Icons.tag),
+                  title: Text('Filter by Tags'),
+                  onTap: () {
+                    Navigator.pop(context);
+                    _showTagFilter();
+                  },
+                ),
+                Divider(),
+                ListTile(
+                  leading: Icon(Icons.settings),
+                  title: Text('Settings'),
+                  onTap: () {
+                    Navigator.pop(context);
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => SettingsScreen(),
+                      ),
+                    );
+                  },
+                ),
+                Consumer<ThemeController>(
+                  builder: (context, themeController, child) {
+                    return SwitchListTile(
+                      secondary: Icon(themeController.isDarkMode ? Icons.dark_mode : Icons.light_mode),
+                      title: Text(themeController.isDarkMode ? 'Dark Mode' : 'Light Mode'),
+                      value: themeController.isDarkMode,
+                      onChanged: (value) {
+                        themeController.toggleTheme();
+                      },
+                    );
+                  }
+                ),
+              ],
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: Text(
+              '© 2023 Sajjel',
+              style: TextStyle(
+                color: Colors.grey,
+                fontSize: 12,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

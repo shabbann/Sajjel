@@ -6,6 +6,7 @@ import '../../theme/app_theme.dart';
 import '../../features/search/global_search_delegate.dart';
 import 'chat_screen.dart';
 import 'settings_screen.dart';
+import 'package:provider/provider.dart';
 
 class ChatListScreen extends StatefulWidget {
   final String? initialChatId;
@@ -17,24 +18,59 @@ class ChatListScreen extends StatefulWidget {
 }
 
 class _ChatListScreenState extends State<ChatListScreen> {
+  final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
+  final TextEditingController _searchController = TextEditingController();
+  final TextEditingController _drawerSearchController = TextEditingController();
   final DatabaseService _databaseService = DatabaseService();
   List<Chat> _chats = [];
   List<Chat> _filteredChats = [];
   String? _defaultChatId;
-  TextEditingController _searchController = TextEditingController();
   bool _isSearching = false;
+  bool _isDrawerSearching = false;
+  ThemeMode _currentThemeMode = ThemeMode.system;
 
   @override
   void initState() {
     super.initState();
     _loadChats();
     _loadDefaultChat();
+    _searchController.addListener(_filterChats);
+    _drawerSearchController.addListener(_filterChats);
+    _loadThemePreference();
   }
 
   @override
   void dispose() {
     _searchController.dispose();
+    _drawerSearchController.dispose();
     super.dispose();
+  }
+
+  Future<void> _loadThemePreference() async {
+    final themePreference = await PreferencesService.getThemeMode();
+    setState(() {
+      _currentThemeMode = themePreference;
+    });
+  }
+
+  Future<void> _toggleThemeMode() async {
+    ThemeMode newMode;
+    if (_currentThemeMode == ThemeMode.light) {
+      newMode = ThemeMode.dark;
+    } else if (_currentThemeMode == ThemeMode.dark) {
+      newMode = ThemeMode.system;
+    } else {
+      newMode = ThemeMode.light;
+    }
+    
+    await PreferencesService.saveThemeMode(newMode);
+    setState(() {
+      _currentThemeMode = newMode;
+    });
+    
+    // Update app theme
+    final themeNotifier = Provider.of<ThemeNotifier>(context, listen: false);
+    themeNotifier.setThemeMode(newMode);
   }
 
   Future<void> _loadDefaultChat() async {
@@ -52,13 +88,17 @@ class _ChatListScreenState extends State<ChatListScreen> {
     });
   }
 
-  void _filterChats(String query) {
+  void _filterChats([String? query]) {
+    final searchText = query ?? (_isDrawerSearching 
+        ? _drawerSearchController.text 
+        : _searchController.text);
+        
     setState(() {
-      if (query.isEmpty) {
+      if (searchText.isEmpty) {
         _filteredChats = _chats;
       } else {
         _filteredChats = _chats
-            .where((chat) => chat.name.toLowerCase().contains(query.toLowerCase()))
+            .where((chat) => chat.name.toLowerCase().contains(searchText.toLowerCase()))
             .toList();
       }
     });
@@ -144,6 +184,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      key: _scaffoldKey,
       appBar: _isSearching
           ? AppBar(
               title: TextField(
@@ -178,6 +219,12 @@ class _ChatListScreenState extends State<ChatListScreen> {
                   const Text('Sajjel'),
                 ],
               ),
+              leading: IconButton(
+                icon: Icon(Icons.menu),
+                onPressed: () {
+                  _scaffoldKey.currentState?.openDrawer();
+                },
+              ),
               actions: [
                 IconButton(
                   icon: Icon(Icons.search),
@@ -188,35 +235,206 @@ class _ChatListScreenState extends State<ChatListScreen> {
                   },
                   tooltip: 'Search chats',
                 ),
-                IconButton(
-                  icon: Icon(Icons.manage_search),
-                  onPressed: _showGlobalSearch,
-                  tooltip: 'Search across all chats',
-                ),
-                IconButton(
-                  icon: Icon(Icons.settings),
-                  onPressed: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(builder: (context) => SettingsScreen()),
-                    ).then((_) {
-                      // Refresh when coming back from settings
-                      _loadDefaultChat();
-                    });
-                  },
-                ),
               ],
             ),
+      drawer: Drawer(
+        child: Column(
+          children: [
+            Container(
+              padding: EdgeInsets.only(top: MediaQuery.of(context).padding.top),
+              child: DrawerHeader(
+                decoration: BoxDecoration(
+                  color: Theme.of(context).primaryColor,
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        CircleAvatar(
+                          radius: 30,
+                          backgroundColor: Colors.white,
+                          child: Icon(
+                            Icons.chat,
+                            size: 35,
+                            color: Theme.of(context).primaryColor,
+                          ),
+                        ),
+                        SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Chat Notes',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 24,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                              Text(
+                                'Your personal chat assistant',
+                                style: TextStyle(
+                                  color: Colors.white70,
+                                  fontSize: 14,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                    SizedBox(height: 16),
+                    if (_isDrawerSearching)
+                      Container(
+                        height: 40,
+                        decoration: BoxDecoration(
+                          color: Colors.white.withOpacity(0.2),
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: TextField(
+                          controller: _drawerSearchController,
+                          decoration: InputDecoration(
+                            hintText: 'Search chats...',
+                            hintStyle: TextStyle(color: Colors.white70),
+                            prefixIcon: Icon(Icons.search, color: Colors.white70),
+                            suffixIcon: IconButton(
+                              icon: Icon(Icons.clear, color: Colors.white70),
+                              onPressed: () {
+                                setState(() {
+                                  _isDrawerSearching = false;
+                                  _drawerSearchController.clear();
+                                  _filteredChats = _chats;
+                                });
+                              },
+                            ),
+                            border: InputBorder.none,
+                            contentPadding: EdgeInsets.symmetric(vertical: 10),
+                          ),
+                          style: TextStyle(color: Colors.white),
+                          onChanged: _filterChats,
+                        ),
+                      )
+                    else
+                      ElevatedButton.icon(
+                        icon: Icon(Icons.search),
+                        label: Text('Search Chats'),
+                        onPressed: () {
+                          setState(() {
+                            _isDrawerSearching = true;
+                          });
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.white.withOpacity(0.2),
+                          foregroundColor: Colors.white,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+            Expanded(
+              child: ListView(
+                padding: EdgeInsets.zero,
+                children: [
+                  ListTile(
+                    leading: Icon(Icons.add_circle_outline),
+                    title: Text('New Chat'),
+                    onTap: () {
+                      Navigator.pop(context);
+                      _createNewChat();
+                    },
+                  ),
+                  ListTile(
+                    leading: Icon(Icons.search),
+                    title: Text('Global Search'),
+                    onTap: () {
+                      Navigator.pop(context);
+                      _showGlobalSearch();
+                    },
+                  ),
+                  Divider(),
+                  ListTile(
+                    leading: Icon(Icons.brightness_6),
+                    title: Text('Theme: ${_getThemeModeName()}'),
+                    onTap: () {
+                      _toggleThemeMode();
+                      Navigator.pop(context);
+                    },
+                  ),
+                  ListTile(
+                    leading: Icon(Icons.settings),
+                    title: Text('Settings'),
+                    onTap: () {
+                      Navigator.pop(context);
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => SettingsScreen(),
+                        ),
+                      );
+                    },
+                  ),
+                  Divider(),
+                  ListTile(
+                    leading: Icon(Icons.info_outline),
+                    title: Text('About'),
+                    onTap: () {
+                      Navigator.pop(context);
+                      _showAboutDialog();
+                    },
+                  ),
+                ],
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: Text(
+                'Version 1.0.0',
+                style: TextStyle(
+                  color: Colors.grey[600],
+                  fontSize: 12,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
       body: _filteredChats.isEmpty
           ? Center(
               child: _chats.isEmpty
-                  ? Text(
-                      'No chats yet\nCreate a new chat to get started',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        color: Colors.grey[600],
-                        fontSize: 16,
-                      ),
+                  ? Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          Icons.chat_bubble_outline,
+                          size: 64,
+                          color: Colors.grey[400],
+                        ),
+                        SizedBox(height: 16),
+                        Text(
+                          'No chats yet',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            color: Colors.grey[600],
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        SizedBox(height: 8),
+                        Text(
+                          'Create a new chat to get started',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            color: Colors.grey[600],
+                            fontSize: 16,
+                          ),
+                        ),
+                      ],
                     )
                   : Text(
                       'No matching chats found',
@@ -233,67 +451,170 @@ class _ChatListScreenState extends State<ChatListScreen> {
                 final chat = _filteredChats[index];
                 final isDefault = chat.id == _defaultChatId;
                 
-                return ListTile(
-                  leading: CircleAvatar(
-                    backgroundColor: AppTheme.primaryColor,
-                    child: Text(
-                      chat.name[0].toUpperCase(),
-                      style: TextStyle(color: Colors.white),
-                    ),
+                return Card(
+                  margin: EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  elevation: 2,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
                   ),
-                  title: Row(
-                    children: [
-                      Text(chat.name),
-                      if (isDefault)
-                        Padding(
-                          padding: const EdgeInsets.only(left: 8.0),
-                          child: Icon(
-                            Icons.star,
-                            color: Colors.amber,
-                            size: 16,
+                  child: ListTile(
+                    contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    leading: CircleAvatar(
+                      backgroundColor: AppTheme.primaryColor,
+                      child: Text(
+                        chat.name[0].toUpperCase(),
+                        style: TextStyle(color: Colors.white),
+                      ),
+                    ),
+                    title: Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            chat.name,
+                            style: TextStyle(
+                              fontWeight: FontWeight.w500,
+                              fontSize: 16,
+                            ),
+                            overflow: TextOverflow.ellipsis,
                           ),
                         ),
-                    ],
-                  ),
-                  subtitle: Text(
-                    'Created on ${chat.createdAt.day}/${chat.createdAt.month}/${chat.createdAt.year}',
-                  ),
-                  onTap: () async {
-                    // Save this as the last opened chat
-                    await PreferencesService.saveLastOpenedChat(chat.id);
-                    
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => ChatScreen(chatId: chat.id),
-                      ),
-                    );
-                  },
-                  onLongPress: () {
-                    showModalBottomSheet(
-                      context: context,
-                      builder: (context) => Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          ListTile(
-                            leading: Icon(isDefault ? Icons.star_border : Icons.star),
-                            title: Text(isDefault ? 'Remove default chat' : 'Set as default chat'),
-                            onTap: () {
-                              Navigator.pop(context);
-                              _setAsDefaultChat(chat.id);
-                            },
+                        if (isDefault)
+                          Padding(
+                            padding: const EdgeInsets.only(left: 8.0),
+                            child: Icon(
+                              Icons.star,
+                              color: Colors.amber,
+                              size: 16,
+                            ),
                           ),
-                        ],
+                      ],
+                    ),
+                    subtitle: Text(
+                      'Created: ${chat.createdAt.toString().substring(0, 10)}',
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: Colors.grey[600],
                       ),
-                    );
-                  },
+                    ),
+                    trailing: PopupMenuButton<String>(
+                      icon: Icon(Icons.more_vert),
+                      onSelected: (value) async {
+                        if (value == 'delete') {
+                          final shouldDelete = await showDialog<bool>(
+                            context: context,
+                            builder: (context) => AlertDialog(
+                              title: Text('Delete Chat'),
+                              content: Text('Are you sure you want to delete "${chat.name}"? This action cannot be undone.'),
+                              actions: [
+                                TextButton(
+                                  onPressed: () => Navigator.pop(context, false),
+                                  child: Text('Cancel'),
+                                ),
+                                TextButton(
+                                  onPressed: () => Navigator.pop(context, true),
+                                  child: Text(
+                                    'Delete',
+                                    style: TextStyle(color: Colors.red),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ) ?? false;
+
+                          if (shouldDelete) {
+                            await _databaseService.deleteChat(chat.id);
+                            if (isDefault) {
+                              await PreferencesService.saveDefaultChat(null);
+                            }
+                            _loadChats();
+                          }
+                        } else if (value == 'default') {
+                          _setAsDefaultChat(chat.id);
+                        }
+                      },
+                      itemBuilder: (context) => [
+                        PopupMenuItem(
+                          value: 'default',
+                          child: ListTile(
+                            leading: Icon(
+                              isDefault ? Icons.star_border : Icons.star,
+                              color: isDefault ? Colors.grey : Colors.amber,
+                            ),
+                            title: Text(isDefault ? 'Remove Default' : 'Set as Default'),
+                            contentPadding: EdgeInsets.zero,
+                            visualDensity: VisualDensity.compact,
+                          ),
+                        ),
+                        PopupMenuItem(
+                          value: 'delete',
+                          child: ListTile(
+                            leading: Icon(Icons.delete, color: Colors.red),
+                            title: Text('Delete'),
+                            contentPadding: EdgeInsets.zero,
+                            visualDensity: VisualDensity.compact,
+                          ),
+                        ),
+                      ],
+                    ),
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => ChatScreen(chatId: chat.id),
+                        ),
+                      ).then((_) {
+                        // Refresh when coming back from chat
+                        _loadChats();
+                      });
+                    },
+                  ),
                 );
               },
             ),
       floatingActionButton: FloatingActionButton(
         onPressed: _createNewChat,
+        tooltip: 'Create new chat',
         child: Icon(Icons.add),
-        backgroundColor: AppTheme.primaryColor,
+        elevation: 4,
+      ),
+    );
+  }
+
+  String _getThemeModeName() {
+    switch (_currentThemeMode) {
+      case ThemeMode.light:
+        return 'Light';
+      case ThemeMode.dark:
+        return 'Dark';
+      case ThemeMode.system:
+        return 'System';
+      default:
+        return 'System';
+    }
+  }
+
+  void _showAboutDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('About Chat Notes'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Chat Notes is a personal note-taking app in a chat interface.'),
+            SizedBox(height: 16),
+            Text('Version: 1.0.0'),
+            SizedBox(height: 8),
+            Text('Developed with Flutter'),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text('Close'),
+          ),
+        ],
       ),
     );
   }

@@ -7,8 +7,9 @@ import '../screens/location_map_screen.dart';
 
 class ChatBubble extends StatelessWidget {
   final Note note;
+  final VoidCallback? onDeleted;
 
-  const ChatBubble({super.key, required this.note});
+  const ChatBubble({super.key, required this.note, this.onDeleted});
 
   // Implement a cached color calculation for common background colors
   static final Map<Color, Color> _textColorCache = {};
@@ -45,6 +46,9 @@ class ChatBubble extends StatelessWidget {
               title: const Text('Delete Note', style: TextStyle(color: Colors.red)),
               onTap: () async {
                 await noteController.deleteNote(note.id);
+                if (onDeleted != null) {
+                  onDeleted!();
+                }
                 Navigator.pop(context);
               },
             ),

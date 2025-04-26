@@ -2,13 +2,15 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../theme/app_theme.dart';
+import 'package:chat_notes/services/preferences_service.dart';
 
 class ThemeController extends ChangeNotifier {
   static const String _themeKey = 'themeMode';
   static const String _colorKey = 'colorScheme';
   
   int _colorSchemeIndex = 0;
-  ThemeMode _themeMode = ThemeMode.system;
+  late ThemeMode _themeMode;
+  bool _isLoaded = false;
 
   // Getters
   ThemeMode get themeMode => _themeMode;
@@ -46,7 +48,14 @@ class ThemeController extends ChangeNotifier {
   ];
 
   ThemeController() {
+    loadThemeMode();
+  }
+
+  Future<void> loadThemeMode() async {
+    _themeMode = await PreferencesService.getThemeMode();
+    _isLoaded = true;
     _loadThemePreference();
+    notifyListeners();
   }
 
   Future<void> _loadThemePreference() async {
@@ -67,8 +76,11 @@ class ThemeController extends ChangeNotifier {
     await prefs.setInt(_colorKey, _colorSchemeIndex);
   }
 
-  void setThemeMode(ThemeMode mode) {
+  Future<void> setThemeMode(ThemeMode mode) async {
+    if (_themeMode == mode) return;
+    
     _themeMode = mode;
+    await PreferencesService.saveThemeMode(mode);
     _saveThemePreference();
     notifyListeners();
   }
@@ -102,5 +114,38 @@ class ThemeController extends ChangeNotifier {
         foregroundColor: Colors.white,
       ),
     );
+  }
+
+  bool get isLoaded => _isLoaded;
+
+  Future<void> toggleThemeMode() async {
+    switch (_themeMode) {
+      case ThemeMode.light:
+        await setThemeMode(ThemeMode.dark);
+        break;
+      case ThemeMode.dark:
+        await setThemeMode(ThemeMode.system);
+        break;
+      case ThemeMode.system:
+        await setThemeMode(ThemeMode.light);
+        break;
+    }
+  }
+
+  // Light theme colors
+  static final lightColorScheme = ColorScheme.fromSeed(
+    seedColor: const Color(0xFF4CAF50),
+    brightness: Brightness.light,
+  );
+
+  // Dark theme colors
+  static final darkColorScheme = ColorScheme.fromSeed(
+    seedColor: const Color(0xFF4CAF50),
+    brightness: Brightness.dark,
+  );
+
+  // Add method to toggle theme
+  Future<void> toggleTheme() async {
+    await toggleThemeMode();
   }
 }

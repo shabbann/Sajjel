@@ -5,12 +5,12 @@ import '../../services/map_launcher.dart';
 import 'package:geolocator/geolocator.dart';
 
 class ChatInput extends StatefulWidget {
-  final TextEditingController controller;
+  final TextEditingController textController;
   final Function(String, List<String>, String?, double?, double?, String?) onSubmitted;
 
   const ChatInput({
     super.key,
-    required this.controller,
+    required this.textController,
     required this.onSubmitted,
   });
 
@@ -28,11 +28,24 @@ class _ChatInputState extends State<ChatInput> {
   List<MapProvider> _availableMapProviders = [MapProvider.defaultMap];
   MapProvider _selectedMapProvider = MapProvider.defaultMap;
   bool _showMapProviders = false;
+  FocusNode _focusNode = FocusNode();
+  bool _isFocused = false;
 
   @override
   void initState() {
     super.initState();
     _loadAvailableMapProviders();
+    _focusNode.addListener(() {
+      setState(() {
+        _isFocused = _focusNode.hasFocus;
+      });
+    });
+  }
+
+  @override
+  void dispose() {
+    _focusNode.dispose();
+    super.dispose();
   }
 
   Future<void> _loadAvailableMapProviders() async {
@@ -138,19 +151,38 @@ class _ChatInputState extends State<ChatInput> {
 
   @override
   Widget build(BuildContext context) {
+    final isDarkMode = Theme.of(context).brightness == Brightness.dark;
+
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
         if (_showTagSelector)
-          TagSelector(
-            selectedTags: _selectedTags,
-            onTagsChanged: (tags) => setState(() => _selectedTags = tags),
-            noteColor: _selectedColor,
-            onColorChanged: (color) => setState(() => _selectedColor = color),
+          AnimatedContainer(
+            duration: const Duration(milliseconds: 200),
+            child: TagSelector(
+              selectedTags: _selectedTags,
+              onTagsChanged: (tags) => setState(() => _selectedTags = tags),
+              noteColor: _selectedColor,
+              onColorChanged: (color) => setState(() => _selectedColor = color),
+            ),
           ),
         if (_currentLocation != null)
-          Padding(
+          AnimatedContainer(
+            duration: const Duration(milliseconds: 200),
             padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+            decoration: BoxDecoration(
+              color: isDarkMode 
+                ? Colors.grey[850] 
+                : Colors.blue.withOpacity(0.05),
+              border: Border(
+                top: BorderSide(
+                  color: isDarkMode 
+                    ? Colors.grey[700]! 
+                    : Colors.blue.withOpacity(0.2),
+                  width: 1,
+                ),
+              ),
+            ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -161,14 +193,18 @@ class _ChatInputState extends State<ChatInput> {
                         onTap: _openCurrentLocationOnMap,
                         child: Row(
                           children: [
-                            const Icon(Icons.location_on, size: 16, color: Colors.blue),
+                            Icon(
+                              Icons.location_on, 
+                              size: 16, 
+                              color: Theme.of(context).primaryColor,
+                            ),
                             const SizedBox(width: 8),
                             Expanded(
                               child: Text(
                                 _locationName ?? 'Location attached',
-                                style: const TextStyle(
+                                style: TextStyle(
                                   fontSize: 12,
-                                  color: Colors.blue,
+                                  color: Theme.of(context).primaryColor,
                                   decoration: TextDecoration.underline,
                                 ),
                                 overflow: TextOverflow.ellipsis,
@@ -179,7 +215,11 @@ class _ChatInputState extends State<ChatInput> {
                       ),
                     ),
                     IconButton(
-                      icon: const Icon(Icons.map, size: 16),
+                      icon: Icon(
+                        Icons.map, 
+                        size: 16,
+                        color: Theme.of(context).primaryColor,
+                      ),
                       padding: EdgeInsets.zero,
                       constraints: const BoxConstraints(),
                       onPressed: () {
@@ -188,8 +228,13 @@ class _ChatInputState extends State<ChatInput> {
                         });
                       },
                     ),
+                    const SizedBox(width: 8),
                     IconButton(
-                      icon: const Icon(Icons.close, size: 16),
+                      icon: Icon(
+                        Icons.close, 
+                        size: 16,
+                        color: Theme.of(context).colorScheme.error,
+                      ),
                       padding: EdgeInsets.zero,
                       constraints: const BoxConstraints(),
                       onPressed: () {
@@ -214,6 +259,7 @@ class _ChatInputState extends State<ChatInput> {
                           child: ChoiceChip(
                             label: Text(_getMapProviderName(provider)),
                             selected: _selectedMapProvider == provider,
+                            selectedColor: Theme.of(context).primaryColor.withOpacity(0.7),
                             onSelected: (selected) {
                               if (selected) {
                                 setState(() {
@@ -230,87 +276,129 @@ class _ChatInputState extends State<ChatInput> {
             ),
           ),
         Container(
-          padding: const EdgeInsets.all(8),
+          padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 6.0),
           decoration: BoxDecoration(
-            color: Theme.of(context).cardColor,
+            color: isDarkMode 
+                ? Colors.grey[850] 
+                : Colors.grey[100],
             boxShadow: [
               BoxShadow(
-                color: Colors.grey.withOpacity(0.2),
-                blurRadius: 5,
+                color: Colors.black.withOpacity(0.05),
+                blurRadius: 3,
+                offset: const Offset(0, -1),
               ),
             ],
           ),
           child: Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
             children: [
               IconButton(
-                icon: const Icon(Icons.tag),
+                icon: Icon(
+                  Icons.tag,
+                  color: _showTagSelector 
+                      ? Theme.of(context).primaryColor 
+                      : null,
+                ),
                 onPressed: () => setState(() => _showTagSelector = !_showTagSelector),
               ),
               Expanded(
-                child: TextField(
-                  controller: widget.controller,
-                  decoration: InputDecoration(
-                    hintText: 'Type a message...',
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(24),
-                      borderSide: BorderSide.none,
-                    ),
-                    filled: true,
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+                child: Container(
+                  constraints: const BoxConstraints(
+                    minHeight: 40,
+                    maxHeight: 120,
                   ),
-                  onSubmitted: (text) {
-                    _submitMessage(text);
-                  },
+                  decoration: BoxDecoration(
+                    color: isDarkMode ? Colors.grey[800] : Colors.white,
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(
+                      color: _isFocused 
+                          ? Theme.of(context).primaryColor.withOpacity(0.5) 
+                          : Colors.grey.withOpacity(0.3),
+                      width: 1,
+                    ),
+                  ),
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                  child: TextField(
+                    controller: widget.textController,
+                    focusNode: _focusNode,
+                    decoration: InputDecoration(
+                      hintText: 'Type a message...',
+                      hintStyle: TextStyle(color: Colors.grey.withOpacity(0.7)),
+                      border: InputBorder.none,
+                      contentPadding: const EdgeInsets.symmetric(vertical: 10),
+                      isCollapsed: true,
+                    ),
+                    maxLines: null,
+                    textInputAction: TextInputAction.newline,
+                    keyboardType: TextInputType.multiline,
+                    style: TextStyle(
+                      fontSize: 16,
+                      color: isDarkMode ? Colors.white : Colors.black87,
+                    ),
+                  ),
                 ),
               ),
-              if (LocationService.isLocationSupported)
-                IconButton(
-                  icon: _isGettingLocation 
-                    ? const SizedBox(
-                        width: 24,
-                        height: 24,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : Icon(
-                        _currentLocation != null ? Icons.location_on : Icons.location_off,
-                        color: _currentLocation != null ? Colors.blue : null,
+              const SizedBox(width: 8),
+              _isGettingLocation
+                  ? Container(
+                      width: 40,
+                      height: 40,
+                      padding: const EdgeInsets.all(10),
+                      child: const CircularProgressIndicator(
+                        strokeWidth: 2,
                       ),
-                  onPressed: _isGettingLocation ? null : _getLocation,
+                    )
+                  : IconButton(
+                      icon: Icon(
+                        Icons.location_on,
+                        color: _currentLocation != null 
+                            ? Theme.of(context).primaryColor 
+                            : null,
+                      ),
+                      onPressed: _currentLocation != null ? null : _getLocation,
+                    ),
+              const SizedBox(width: 4),
+              AnimatedContainer(
+                duration: const Duration(milliseconds: 200),
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: widget.textController.text.trim().isNotEmpty
+                      ? Theme.of(context).primaryColor
+                      : Theme.of(context).primaryColor.withOpacity(0.6),
+                  shape: BoxShape.circle,
                 ),
-              IconButton(
-                icon: const Icon(Icons.send),
-                onPressed: () {
-                  if (widget.controller.text.isNotEmpty) {
-                    _submitMessage(widget.controller.text);
-                  }
-                },
+                child: IconButton(
+                  icon: const Icon(Icons.send, color: Colors.white, size: 20),
+                  onPressed: widget.textController.text.trim().isNotEmpty
+                      ? () {
+                          final text = widget.textController.text;
+                          if (text.isNotEmpty) {
+                            widget.onSubmitted(
+                              text,
+                              _selectedTags,
+                              _selectedColor,
+                              _currentLocation?.latitude,
+                              _currentLocation?.longitude,
+                              _locationName,
+                            );
+                            setState(() {
+                              _selectedTags = [];
+                              _selectedColor = null;
+                              _currentLocation = null;
+                              _locationName = null;
+                              _showTagSelector = false;
+                              _showMapProviders = false;
+                            });
+                          }
+                        }
+                      : null,
+                ),
               ),
             ],
           ),
         ),
       ],
     );
-  }
-
-  void _submitMessage(String text) {
-    if (text.isNotEmpty) {
-      widget.onSubmitted(
-        text,
-        _selectedTags,
-        _selectedColor,
-        _currentLocation?.latitude,
-        _currentLocation?.longitude,
-        _locationName,
-      );
-      widget.controller.clear();
-      setState(() {
-        _selectedTags = [];
-        _selectedColor = null;
-        _showTagSelector = false;
-        // Keep the location data until the user explicitly clears it
-        // _currentLocation = null;
-        // _locationName = null;
-      });
-    }
   }
 }

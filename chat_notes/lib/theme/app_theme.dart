@@ -1,5 +1,17 @@
 import 'package:flutter/material.dart';
 
+// Adding ThemeNotifier class that's referenced in the code
+class ThemeNotifier extends ChangeNotifier {
+  ThemeMode _themeMode = ThemeMode.system;
+  
+  ThemeMode get themeMode => _themeMode;
+  
+  void setThemeMode(ThemeMode mode) {
+    _themeMode = mode;
+    notifyListeners();
+  }
+}
+
 class AppTheme {
   static const Color primaryColor = Color(0xFF3F51B5); // Indigo
   static const Color accentColor = Color(0xFF2196F3);  // Blue

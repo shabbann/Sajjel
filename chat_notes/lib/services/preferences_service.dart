@@ -1,8 +1,10 @@
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter/material.dart';
 
 class PreferencesService {
   static const String _lastOpenedChatKey = 'last_opened_chat';
   static const String _defaultChatKey = 'default_chat';
+  static const String _themeModeKey = 'theme_mode';
 
   // Get the last opened chat ID
   static Future<String?> getLastOpenedChat() async {
@@ -41,5 +43,21 @@ class PreferencesService {
     }
     // Otherwise use the last opened chat
     return await getLastOpenedChat();
+  }
+
+  // Get the theme mode preference
+  static Future<ThemeMode> getThemeMode() async {
+    final prefs = await SharedPreferences.getInstance();
+    final themeModeIndex = prefs.getInt(_themeModeKey);
+    if (themeModeIndex != null && themeModeIndex >= 0 && themeModeIndex < ThemeMode.values.length) {
+      return ThemeMode.values[themeModeIndex];
+    }
+    return ThemeMode.system;
+  }
+
+  // Save the theme mode preference
+  static Future<void> saveThemeMode(ThemeMode themeMode) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt(_themeModeKey, themeMode.index);
   }
 } 

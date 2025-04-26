@@ -7,6 +7,7 @@ class NoteController extends ChangeNotifier {
   bool _isLoading = false;
   List<dynamic> _notes = [];
   String _currentChatId = '';
+  bool _hasNewNote = false;
 
   NoteController({required this.databaseService});
 
@@ -14,8 +15,13 @@ class NoteController extends ChangeNotifier {
   bool get isLoading => _isLoading;
   List<dynamic> get notes => _notes;
   String get currentChatId => _currentChatId;
+  bool get hasNewNote => _hasNewNote;
 
   // Methods
+  void resetNewNoteFlag() {
+    _hasNewNote = false;
+  }
+
   void setLoading(bool loading) {
     _isLoading = loading;
     notifyListeners();
@@ -65,6 +71,7 @@ class NoteController extends ChangeNotifier {
     );
 
     await databaseService.insertNote(note);
+    _hasNewNote = true;
     await loadNotes();
   }
 
