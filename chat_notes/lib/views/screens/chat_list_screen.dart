@@ -571,12 +571,6 @@ class _ChatListScreenState extends State<ChatListScreen> {
                 );
               },
             ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _createNewChat,
-        tooltip: 'Create new chat',
-        child: Icon(Icons.add),
-        elevation: 4,
-      ),
     );
   }
 

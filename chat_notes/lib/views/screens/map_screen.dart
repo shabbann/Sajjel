@@ -259,19 +259,6 @@ class _MapScreenState extends State<MapScreen> {
                     ),
                   ],
                 ),
-      floatingActionButton: _currentPosition != null
-          ? FloatingActionButton(
-              onPressed: () async {
-                await LocationService.openLocationInMap(
-                  _currentPosition!.latitude,
-                  _currentPosition!.longitude,
-                  label: 'My Location',
-                );
-              },
-              child: const Icon(Icons.open_in_browser),
-              tooltip: 'Open in external map app',
-            )
-          : null,
     );
   }
 } 

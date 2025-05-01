@@ -49,6 +49,8 @@
 	<string>This app needs access to your location to attach it to notes.</string>
 	<key>NSLocationAlwaysUsageDescription</key>
 	<string>This app needs access to your location to attach it to notes.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>This app needs access to your microphone to record voice notes.</string>
 	<key>io.flutter.embedded_views_preview</key>
 	<true/>
 </dict>

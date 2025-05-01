@@ -116,7 +116,7 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
-  void _handleSubmitted(String text, List<String> tags, String? color, double? latitude, double? longitude, String? locationName) {
+  void _handleSubmitted(String text, List<String> tags, String? color, double? latitude, double? longitude, String? locationName, String? audioPath) {
     if (text.isEmpty) return;
     
     final trimmedText = text.trim();
@@ -129,6 +129,7 @@ class _ChatScreenState extends State<ChatScreen> {
         latitude: latitude,
         longitude: longitude,
         locationName: locationName,
+        audioPath: audioPath,
       );
       _textController.clear();
       _scrollToBottom();
@@ -198,36 +199,186 @@ class _ChatScreenState extends State<ChatScreen> {
 
     showModalBottomSheet(
       context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
       builder: (context) => Container(
-        padding: const EdgeInsets.all(16),
+        padding: EdgeInsets.only(
+          bottom: MediaQuery.of(context).viewInsets.bottom + 16,
+          top: 16,
+          left: 16,
+          right: 16,
+        ),
+        decoration: BoxDecoration(
+          color: Theme.of(context).colorScheme.surface,
+          borderRadius: const BorderRadius.only(
+            topLeft: Radius.circular(24),
+            topRight: Radius.circular(24),
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.1),
+              blurRadius: 10,
+              offset: const Offset(0, -5),
+            ),
+          ],
+        ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            Center(
+              child: Container(
+                width: 40,
+                height: 4,
+                margin: const EdgeInsets.only(bottom: 16),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.onSurface.withOpacity(0.2),
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  'Filter by Tags',
+                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.bold,
+                      ),
+                ),
+                if (_selectedTags.isNotEmpty)
+                  TextButton.icon(
+                    icon: const Icon(Icons.clear_all),
+                    label: const Text('Clear All'),
+                    onPressed: () {
+                      setState(() {
+                        _selectedTags = [];
+                      });
+                      Navigator.pop(context);
+                    },
+                    style: TextButton.styleFrom(
+                      foregroundColor: Theme.of(context).colorScheme.error,
+                    ),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 8),
             Text(
-              'Filter by Tags',
-              style: Theme.of(context).textTheme.titleLarge,
+              'Select tags to filter your notes',
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: Theme.of(context).colorScheme.onSurface.withOpacity(0.7),
+                  ),
             ),
             const SizedBox(height: 16),
-            Wrap(
-              spacing: 8,
-              children: tags.map((tag) {
-                final isSelected = _selectedTags.contains(tag);
-                return FilterChip(
-                  label: Text(tag),
-                  selected: isSelected,
-                  onSelected: (selected) {
-                    setState(() {
-                      if (selected) {
-                        _selectedTags.add(tag);
-                      } else {
-                        _selectedTags.remove(tag);
-                      }
-                    });
-                    Navigator.pop(context);
-                  },
-                );
-              }).toList(),
+            tags.isEmpty
+                ? Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(24.0),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.tag,
+                            size: 48,
+                            color: Theme.of(context).colorScheme.onSurface.withOpacity(0.3),
+                          ),
+                          const SizedBox(height: 16),
+                          Text(
+                            'No tags found',
+                            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                                  fontWeight: FontWeight.bold,
+                                ),
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            'Add tags to your notes to filter them here',
+                            textAlign: TextAlign.center,
+                            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                  color: Theme.of(context).colorScheme.onSurface.withOpacity(0.7),
+                                ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  )
+                : Wrap(
+                    spacing: 8,
+                    runSpacing: 12,
+                    children: tags.map((tag) {
+                      final isSelected = _selectedTags.contains(tag);
+                      return InkWell(
+                        onTap: () {
+                          setState(() {
+                            if (isSelected) {
+                              _selectedTags.remove(tag);
+                            } else {
+                              _selectedTags.add(tag);
+                            }
+                          });
+                        },
+                        borderRadius: BorderRadius.circular(20),
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 200),
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                          decoration: BoxDecoration(
+                            color: isSelected
+                                ? Theme.of(context).colorScheme.primary
+                                : Theme.of(context).colorScheme.surfaceVariant,
+                            borderRadius: BorderRadius.circular(20),
+                            boxShadow: isSelected
+                                ? [
+                                    BoxShadow(
+                                      color: Theme.of(context).colorScheme.primary.withOpacity(0.3),
+                                      blurRadius: 6,
+                                      offset: const Offset(0, 2),
+                                    ),
+                                  ]
+                                : null,
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                '#$tag',
+                                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                      color: isSelected
+                                          ? Theme.of(context).colorScheme.onPrimary
+                                          : Theme.of(context).colorScheme.onSurfaceVariant,
+                                      fontWeight: isSelected ? FontWeight.bold : null,
+                                    ),
+                              ),
+                              if (isSelected) ...[
+                                const SizedBox(width: 6),
+                                Icon(
+                                  Icons.check,
+                                  size: 16,
+                                  color: Theme.of(context).colorScheme.onPrimary,
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                      );
+                    }).toList(),
+                  ),
+            const SizedBox(height: 24),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: () => Navigator.pop(context),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Theme.of(context).colorScheme.primary,
+                  foregroundColor: Theme.of(context).colorScheme.onPrimary,
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                ),
+                child: Text(
+                  _selectedTags.isEmpty ? 'Close' : 'Apply Filters (${_selectedTags.length})',
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                ),
+              ),
             ),
           ],
         ),
@@ -277,10 +428,40 @@ class _ChatScreenState extends State<ChatScreen> {
         ),
         actions: [
           if (_selectedTags.isNotEmpty)
-            IconButton(
-              icon: const Icon(Icons.filter_list),
-              tooltip: 'Filters active',
-              onPressed: _showTagFilter,
+            Container(
+              margin: const EdgeInsets.only(right: 8),
+              child: Material(
+                color: Theme.of(context).colorScheme.primary,
+                borderRadius: BorderRadius.circular(20),
+                child: InkWell(
+                  onTap: _showTagFilter,
+                  borderRadius: BorderRadius.circular(20),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.filter_list,
+                          size: 16,
+                          color: Theme.of(context).colorScheme.onPrimary,
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          _selectedTags.length == 1
+                              ? '1 filter'
+                              : '${_selectedTags.length} filters',
+                          style: TextStyle(
+                            color: Theme.of(context).colorScheme.onPrimary,
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
             ),
           IconButton(
             icon: const Icon(Icons.search),
@@ -450,11 +631,6 @@ class _ChatScreenState extends State<ChatScreen> {
             onSubmitted: _handleSubmitted,
           ),
         ],
-      ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _createNewChat,
-        tooltip: 'New Chat',
-        child: const Icon(Icons.add),
       ),
     );
   }

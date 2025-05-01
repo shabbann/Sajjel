@@ -54,7 +54,8 @@ class NoteController extends ChangeNotifier {
     String? color,
     double? latitude,
     double? longitude,
-    String? locationName}) async {
+    String? locationName,
+    String? audioPath}) async {
     if (_currentChatId.isEmpty) return;
     
     final note = Note(
@@ -68,6 +69,7 @@ class NoteController extends ChangeNotifier {
       latitude: latitude,
       longitude: longitude,
       locationName: locationName,
+      audioPath: audioPath,
     );
 
     await databaseService.insertNote(note);
@@ -82,6 +84,7 @@ class NoteController extends ChangeNotifier {
     double? latitude,
     double? longitude,
     String? locationName,
+    String? audioPath,
   }) async {
     final updatedNote = Note(
       id: note.id,
@@ -94,6 +97,7 @@ class NoteController extends ChangeNotifier {
       latitude: latitude ?? note.latitude,
       longitude: longitude ?? note.longitude,
       locationName: locationName ?? note.locationName,
+      audioPath: audioPath ?? note.audioPath,
     );
 
     await databaseService.updateNote(updatedNote);

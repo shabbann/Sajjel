@@ -9,6 +9,7 @@ class Note {
   final double? latitude;
   final double? longitude;
   final String? locationName;
+  final String? audioPath;
 
   Note({
     required this.id,
@@ -21,6 +22,7 @@ class Note {
     this.latitude,
     this.longitude,
     this.locationName,
+    this.audioPath,
   });
 
   Map<String, dynamic> toMap() {
@@ -35,6 +37,7 @@ class Note {
       'latitude': latitude,
       'longitude': longitude,
       'locationName': locationName,
+      'audioPath': audioPath,
     };
   }
 
@@ -52,8 +55,10 @@ class Note {
       latitude: map['latitude'] != null ? double.parse(map['latitude'].toString()) : null,
       longitude: map['longitude'] != null ? double.parse(map['longitude'].toString()) : null,
       locationName: map['locationName'],
+      audioPath: map['audioPath'],
     );
   }
 
   bool get hasLocation => latitude != null && longitude != null;
+  bool get hasAudio => audioPath != null && audioPath!.isNotEmpty;
 }

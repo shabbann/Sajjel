@@ -9,7 +9,8 @@ class ThemeController extends ChangeNotifier {
   static const String _colorKey = 'colorScheme';
   
   int _colorSchemeIndex = 0;
-  late ThemeMode _themeMode;
+  // Initialize with a default value to avoid late initialization error
+  ThemeMode _themeMode = ThemeMode.system;
   bool _isLoaded = false;
 
   // Getters
@@ -52,7 +53,12 @@ class ThemeController extends ChangeNotifier {
   }
 
   Future<void> loadThemeMode() async {
-    _themeMode = await PreferencesService.getThemeMode();
+    try {
+      _themeMode = await PreferencesService.getThemeMode();
+    } catch (e) {
+      // If there's an error, keep the default system theme
+      _themeMode = ThemeMode.system;
+    }
     _isLoaded = true;
     _loadThemePreference();
     notifyListeners();

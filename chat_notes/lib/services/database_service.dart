@@ -7,7 +7,7 @@ import 'package:flutter/foundation.dart' show debugPrint;
 
 class DatabaseService {
   static Database? _database;
-  static const int _databaseVersion = 1;
+  static const int _databaseVersion = 2;
 
   Future<Database> get database async {
     if (_database != null) return _database!;
@@ -49,9 +49,9 @@ class DatabaseService {
   }
 
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
-    if (oldVersion < newVersion) {
-      // Handle future migrations here
-      await _createDb(db, newVersion);
+    if (oldVersion < 2) {
+      // Add audioPath column to the notes table
+      await db.execute('ALTER TABLE notes ADD COLUMN audioPath TEXT');
     }
   }
 
@@ -67,7 +67,8 @@ class DatabaseService {
         color TEXT,
         latitude REAL,
         longitude REAL,
-        locationName TEXT
+        locationName TEXT,
+        audioPath TEXT
       )
     ''');
     
