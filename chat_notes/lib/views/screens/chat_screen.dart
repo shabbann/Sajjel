@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart'; // Import for HapticFeedback
 import 'package:provider/provider.dart';
 import '../../controllers/note_controller.dart';
 import '../../controllers/theme_controller.dart';
@@ -40,9 +41,6 @@ class _ChatScreenState extends State<ChatScreen> {
   void initState() {
     super.initState();
     
-    // Set the current chat ID immediately
-    context.read<NoteController>().setCurrentChat(widget.chatId);
-    
     // Save as last opened chat (this is a lightweight operation)
     PreferencesService.saveLastOpenedChat(widget.chatId);
     
@@ -50,6 +48,9 @@ class _ChatScreenState extends State<ChatScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       // Stage 1: Most critical operations for the UI
       _loadCurrentChatName(); // Load name first for the app bar
+      
+      // Set the current chat ID immediately after the first frame
+      Provider.of<NoteController>(context, listen: false).setCurrentChat(widget.chatId);
       
       // Stage 2: Less critical operations with a slight delay
       Future.delayed(const Duration(milliseconds: 100), () {
@@ -263,196 +264,354 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   void _showTagFilter() async {
-    final tags = await _databaseService.getAllTags(widget.chatId);
+    // Fetch GLOBAL tags instead of chat-specific tags
+    List<String> tags = await _databaseService.getAllTagsGlobal();
     if (!mounted) return;
 
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (context) => Container(
-        padding: EdgeInsets.only(
-          bottom: MediaQuery.of(context).viewInsets.bottom + 16,
-          top: 16,
-          left: 16,
-          right: 16,
-        ),
-        decoration: BoxDecoration(
-          color: Theme.of(context).colorScheme.surface,
-          borderRadius: const BorderRadius.only(
-            topLeft: Radius.circular(24),
-            topRight: Radius.circular(24),
-          ),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.1),
-              blurRadius: 10,
-              offset: const Offset(0, -5),
+      builder: (context) => StatefulBuilder(
+        builder: (BuildContext context, StateSetter setModalState) {
+          return Container(
+            padding: EdgeInsets.only(
+              bottom: MediaQuery.of(context).viewInsets.bottom + 16,
+              top: 16,
+              left: 16,
+              right: 16,
             ),
-          ],
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Center(
-              child: Container(
-                width: 40,
-                height: 4,
-                margin: const EdgeInsets.only(bottom: 16),
-                decoration: BoxDecoration(
-                  color: Theme.of(context).colorScheme.onSurface.withOpacity(0.2),
-                  borderRadius: BorderRadius.circular(2),
-                ),
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.surface,
+              borderRadius: const BorderRadius.only(
+                topLeft: Radius.circular(24),
+                topRight: Radius.circular(24),
               ),
-            ),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  'Filter by Tags',
-                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                        fontWeight: FontWeight.bold,
-                      ),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.1),
+                  blurRadius: 10,
+                  offset: const Offset(0, -5),
                 ),
-                if (_selectedTags.isNotEmpty)
-                  TextButton.icon(
-                    icon: const Icon(Icons.clear_all),
-                    label: const Text('Clear All'),
-                    onPressed: () {
-                      setState(() {
-                        _selectedTags = [];
-                      });
-                      Navigator.pop(context);
-                    },
-                    style: TextButton.styleFrom(
-                      foregroundColor: Theme.of(context).colorScheme.error,
-                    ),
-                  ),
               ],
             ),
-            const SizedBox(height: 8),
-            Text(
-              'Select tags to filter your notes',
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: Theme.of(context).colorScheme.onSurface.withOpacity(0.7),
-                  ),
-            ),
-            const SizedBox(height: 16),
-            tags.isEmpty
-                ? Center(
-                    child: Padding(
-                      padding: const EdgeInsets.all(24.0),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(
-                            Icons.tag,
-                            size: 48,
-                            color: Theme.of(context).colorScheme.onSurface.withOpacity(0.3),
-                          ),
-                          const SizedBox(height: 16),
-                          Text(
-                            'No tags found',
-                            style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                                  fontWeight: FontWeight.bold,
-                                ),
-                          ),
-                          const SizedBox(height: 8),
-                          Text(
-                            'Add tags to your notes to filter them here',
-                            textAlign: TextAlign.center,
-                            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                                  color: Theme.of(context).colorScheme.onSurface.withOpacity(0.7),
-                                ),
-                          ),
-                        ],
-                      ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    width: 40,
+                    height: 4,
+                    margin: const EdgeInsets.only(bottom: 16),
+                    decoration: BoxDecoration(
+                      color: Theme.of(context).colorScheme.onSurface.withOpacity(0.2),
+                      borderRadius: BorderRadius.circular(2),
                     ),
-                  )
-                : Wrap(
-                    spacing: 8,
-                    runSpacing: 12,
-                    children: tags.map((tag) {
-                      final isSelected = _selectedTags.contains(tag);
-                      return InkWell(
-                        onTap: () {
+                  ),
+                ),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      'Filter by Tags',
+                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                            fontWeight: FontWeight.bold,
+                          ),
+                    ),
+                    if (_selectedTags.isNotEmpty)
+                      TextButton.icon(
+                        icon: const Icon(Icons.clear_all, size: 18),
+                        label: const Text('Clear Filters'),
+                        onPressed: () {
+                          setModalState(() {
+                            _selectedTags.clear();
+                          });
                           setState(() {
-                            if (isSelected) {
-                              _selectedTags.remove(tag);
-                            } else {
-                              _selectedTags.add(tag);
-                            }
+                            _selectedTags.clear();
                           });
                         },
-                        borderRadius: BorderRadius.circular(20),
-                        child: AnimatedContainer(
-                          duration: const Duration(milliseconds: 200),
-                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                          decoration: BoxDecoration(
-                            color: isSelected
-                                ? Theme.of(context).colorScheme.primary
-                                : Theme.of(context).colorScheme.surfaceVariant,
-                            borderRadius: BorderRadius.circular(20),
-                            boxShadow: isSelected
-                                ? [
-                                    BoxShadow(
-                                      color: Theme.of(context).colorScheme.primary.withOpacity(0.3),
-                                      blurRadius: 6,
-                                      offset: const Offset(0, 2),
-                                    ),
-                                  ]
-                                : null,
-                          ),
-                          child: Row(
+                        style: TextButton.styleFrom(
+                          foregroundColor: Theme.of(context).colorScheme.error,
+                          textStyle: const TextStyle(fontSize: 12),
+                        ),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    Expanded(
+                      child: Text(
+                        'Select tags to filter notes. Long-press a tag to remove it.',
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                              color: Theme.of(context).colorScheme.onSurface.withOpacity(0.7),
+                              fontSize: 13,
+                            ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    TextButton.icon(
+                      icon: const Icon(Icons.add_circle_outline, size: 18),
+                      label: const Text('Add Tag'),
+                      onPressed: () {
+                        _showAddTagDialog(context, (newTag) async {
+                          await _addNewTag(newTag, setModalState, (updatedTags) {
+                            tags = updatedTags;
+                          });
+                        });
+                      },
+                      style: TextButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                        textStyle: const TextStyle(fontSize: 13),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                tags.isEmpty
+                    ? Center(
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 32.0),
+                          child: Column(
                             mainAxisSize: MainAxisSize.min,
                             children: [
+                              Icon(
+                                Icons.tag,
+                                size: 48,
+                                color: Theme.of(context).colorScheme.onSurface.withOpacity(0.3),
+                              ),
+                              const SizedBox(height: 16),
                               Text(
-                                '#$tag',
-                                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                                      color: isSelected
-                                          ? Theme.of(context).colorScheme.onPrimary
-                                          : Theme.of(context).colorScheme.onSurfaceVariant,
-                                      fontWeight: isSelected ? FontWeight.bold : null,
+                                'No tags found in this chat',
+                                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                                      fontWeight: FontWeight.bold,
                                     ),
                               ),
-                              if (isSelected) ...[
-                                const SizedBox(width: 6),
-                                Icon(
-                                  Icons.check,
-                                  size: 16,
-                                  color: Theme.of(context).colorScheme.onPrimary,
-                                ),
-                              ],
+                              const SizedBox(height: 8),
+                              Text(
+                                'Add tags using the button above or within notes.',
+                                textAlign: TextAlign.center,
+                                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                      color: Theme.of(context).colorScheme.onSurface.withOpacity(0.7),
+                                    ),
+                              ),
                             ],
                           ),
                         ),
-                      );
-                    }).toList(),
-                  ),
-            const SizedBox(height: 24),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                onPressed: () => Navigator.pop(context),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Theme.of(context).colorScheme.primary,
-                  foregroundColor: Theme.of(context).colorScheme.onPrimary,
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(16),
+                      )
+                    : Expanded(
+                        child: SingleChildScrollView(
+                          child: Wrap(
+                            spacing: 8,
+                            runSpacing: 12,
+                            children: tags.map((tag) {
+                              final isSelected = _selectedTags.contains(tag);
+                              return Material(
+                                color: Colors.transparent,
+                                borderRadius: BorderRadius.circular(20),
+                                child: InkWell(
+                                  onTap: () {
+                                    setModalState(() {
+                                      if (isSelected) {
+                                        _selectedTags.remove(tag);
+                                      } else {
+                                        _selectedTags.add(tag);
+                                      }
+                                    });
+                                    setState(() {});
+                                  },
+                                  onLongPress: () {
+                                    HapticFeedback.mediumImpact();
+                                    showDialog(
+                                      context: context,
+                                      builder: (context) => AlertDialog(
+                                        title: const Text('Delete Tag'),
+                                        content: Text('Permanently remove #$tag from all notes in this chat?'),
+                                        actions: [
+                                          TextButton(
+                                            onPressed: () => Navigator.pop(context),
+                                            child: const Text('Cancel'),
+                                          ),
+                                          TextButton(
+                                            onPressed: () async {
+                                              Navigator.pop(context);
+                                              try {
+                                                await _databaseService.removeTagFromChat(widget.chatId, tag);
+                                                
+                                                setModalState(() {
+                                                  tags.remove(tag);
+                                                  if (_selectedTags.contains(tag)) {
+                                                    _selectedTags.remove(tag);
+                                                  }
+                                                });
+                                                setState(() {});
+
+                                                ScaffoldMessenger.of(context).showSnackBar(
+                                                  SnackBar(content: Text('Tag #$tag removed'))
+                                                );
+                                                Provider.of<NoteController>(context, listen: false).loadNotes();
+                                              } catch (e) {
+                                                ScaffoldMessenger.of(context).showSnackBar(
+                                                  SnackBar(content: Text('Error removing tag: $e'))
+                                                );
+                                              }
+                                            },
+                                            child: const Text('Remove', style: TextStyle(color: Colors.red)),
+                                          ),
+                                        ],
+                                      ),
+                                    );
+                                  },
+                                  borderRadius: BorderRadius.circular(20),
+                                  child: AnimatedContainer(
+                                    duration: const Duration(milliseconds: 200),
+                                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                                    decoration: BoxDecoration(
+                                      color: isSelected
+                                          ? Theme.of(context).colorScheme.primary
+                                          : Theme.of(context).colorScheme.surfaceVariant,
+                                      borderRadius: BorderRadius.circular(20),
+                                      border: Border.all(
+                                        color: isSelected 
+                                          ? Theme.of(context).colorScheme.primary 
+                                          : Theme.of(context).colorScheme.outline.withOpacity(0.3),
+                                        width: 1,
+                                      ),
+                                      boxShadow: [
+                                         BoxShadow(
+                                          color: Theme.of(context).colorScheme.shadow.withOpacity(isSelected ? 0.2 : 0.05),
+                                          blurRadius: isSelected ? 4 : 2,
+                                          offset: Offset(0, isSelected ? 2 : 1),
+                                        ),
+                                      ]
+                                    ),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Text(
+                                          '#$tag',
+                                          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                                fontSize: 13,
+                                                color: isSelected
+                                                    ? Theme.of(context).colorScheme.onPrimary
+                                                    : Theme.of(context).colorScheme.onSurfaceVariant,
+                                                fontWeight: isSelected ? FontWeight.w600 : null,
+                                              ),
+                                        ),
+                                        if (isSelected)
+                                          Padding(
+                                            padding: const EdgeInsets.only(left: 6.0),
+                                            child: Icon(
+                                              Icons.check_circle,
+                                              size: 14,
+                                              color: Theme.of(context).colorScheme.onPrimary,
+                                            ),
+                                          ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              );
+                            }).toList(),
+                          ),
+                        ),
+                      ),
+                const SizedBox(height: 24),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: () => Navigator.pop(context),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Theme.of(context).colorScheme.primary,
+                      foregroundColor: Theme.of(context).colorScheme.onPrimary,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                    ),
+                    child: Text(
+                      'Done',
+                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                    ),
                   ),
                 ),
-                child: Text(
-                  _selectedTags.isEmpty ? 'Close' : 'Apply Filters (${_selectedTags.length})',
-                  style: const TextStyle(fontWeight: FontWeight.bold),
-                ),
-              ),
+              ],
             ),
-          ],
-        ),
+          );
+        },
       ),
     );
+  }
+
+  void _showAddTagDialog(BuildContext context, Function(String) onTagAdded) {
+    final TextEditingController tagController = TextEditingController();
+    
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Add New Tag'),
+        contentPadding: const EdgeInsets.fromLTRB(24.0, 20.0, 24.0, 0.0),
+        content: TextField(
+          controller: tagController,
+          decoration: const InputDecoration(
+            hintText: 'Enter tag name',
+            prefixText: '# ',
+            border: OutlineInputBorder(),
+          ),
+          autofocus: true,
+          textCapitalization: TextCapitalization.none,
+          onSubmitted: (value) {
+            final newTag = value.replaceAll('#', '').trim();
+            if (newTag.isNotEmpty) {
+              Navigator.pop(context);
+              onTagAdded(newTag);
+            }
+          },
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () {
+               final newTag = tagController.text.replaceAll('#', '').trim();
+               if (newTag.isNotEmpty) {
+                 Navigator.pop(context);
+                 onTagAdded(newTag);
+              }
+            },
+            child: const Text('Add Tag'),
+          ),
+        ],
+      ),
+    );
+  }
+  
+  Future<void> _addNewTag(String tag, StateSetter setModalState, Function(List<String>) updateLocalTags) async {
+    tag = tag.replaceAll('#', '').trim();
+    if (tag.isEmpty) return;
+    
+    try {
+      await _databaseService.saveTag(widget.chatId, tag);
+      
+      final updatedTags = await _databaseService.getAllTags(widget.chatId);
+      
+      setModalState(() {
+         updateLocalTags(updatedTags);
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Tag #$tag added'))
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error adding tag: $e'))
+      );
+    }
   }
 
   void _showGlobalSearch() {
@@ -479,12 +638,6 @@ class _ChatScreenState extends State<ChatScreen> {
     return Scaffold(
       key: _scaffoldKey,
       appBar: AppBar(
-        leading: IconButton(
-          icon: Icon(Icons.menu),
-          onPressed: () {
-            _scaffoldKey.currentState?.openDrawer();
-          },
-        ),
         title: Row(
           children: [
             Expanded(
@@ -533,6 +686,12 @@ class _ChatScreenState extends State<ChatScreen> {
               ),
             ),
 
+          // Add Filter Button
+          IconButton(
+            icon: const Icon(Icons.sell_outlined),
+            tooltip: 'Filter by Tags',
+            onPressed: _showTagFilter, 
+          ),
           IconButton(
             icon: const Icon(Icons.search),
             tooltip: 'Search in this chat',
@@ -661,7 +820,6 @@ class _ChatScreenState extends State<ChatScreen> {
           ),
         ],
       ),
-      drawer: _buildDrawer(),
       body: Column(
         children: [
           Expanded(

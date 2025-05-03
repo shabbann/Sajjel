@@ -563,4 +563,47 @@ class DatabaseService {
     // Reuse the batch update with empty new tag to delete
     await batchUpdateTag(tag, '');
   }
+
+  // Add a method to remove a tag from all notes in a chat
+  Future<void> removeTagFromChat(String chatId, String tagToRemove) async {
+    final db = await database;
+    
+    try {
+      // First, get all notes that contain this tag
+      final notes = await getNotesByChatId(chatId);
+      
+      // Process each note in a batch operation for better performance
+      final batch = db.batch();
+      
+      for (final note in notes) {
+        if (note.tags.contains(tagToRemove)) {
+          // Create a new tags list without the tag to remove
+          final updatedTags = note.tags.where((tag) => tag != tagToRemove).toList();
+          
+          // Update the note in the database
+          batch.update(
+            'notes',
+            {'tags': updatedTags.join(',')},
+            where: 'id = ?',
+            whereArgs: [note.id],
+          );
+        }
+      }
+      
+      // Commit all updates in one transaction
+      await batch.commit();
+      
+      // Update the tags cache
+      if (_tagsCache.containsKey(chatId)) {
+        _tagsCache[chatId] = _tagsCache[chatId]!.where((tag) => tag != tagToRemove).toList();
+      }
+      
+      // Clear the notes cache for this chat to force a reload
+      _notesCache.remove(chatId);
+      
+    } catch (e) {
+      debugPrint('Error removing tag from chat: $e');
+      rethrow;
+    }
+  }
 }

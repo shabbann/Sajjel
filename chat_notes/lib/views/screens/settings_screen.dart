@@ -165,22 +165,23 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                         title: const Text('App Version'),
                         trailing: const Text('1.0.0'),
                       ),
-                      const Divider(),
-                      ListTile(
-                        leading: Icon(
-                          Icons.code,
-                          color: theme.colorScheme.primary,
-                        ),
-                        title: const Text('Source Code'),
-                        trailing: const Icon(Icons.open_in_new),
-                        onTap: () {
-                          // Open source code link
-                        },
-                      ),
                     ],
                   ),
                 ),
               ),
+              
+              // Add "Built with love" text at the bottom
+              const SizedBox(height: 40),
+              Center(
+                child: Text(
+                  'Built with ❤️ by Happy Happy',
+                  style: TextStyle(
+                    color: theme.colorScheme.onSurface.withOpacity(0.6),
+                    fontSize: 12,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 20), // Bottom padding
             ],
           ),
         ),

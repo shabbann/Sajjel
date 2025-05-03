@@ -1,5 +1,6 @@
 import 'dart:async'; // Add missing import
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart'; // Import for HapticFeedback
 import 'package:provider/provider.dart';
 import 'package:just_audio/just_audio.dart';
 import '../../models/note_model.dart';
@@ -9,6 +10,7 @@ import '../dialogs/note_editor_dialog.dart';
 import '../screens/location_map_screen.dart';
 import '../../theme/app_theme.dart'; // Import AppTheme
 import 'dart:math' as math; // For angle calculation
+import 'package:flutter/rendering.dart';
 
 class ChatBubble extends StatefulWidget {
   final Note note;
@@ -35,36 +37,59 @@ class _ChatBubbleState extends State<ChatBubble> {
   @override
   void initState() {
     super.initState();
-    // Listen to audio player state changes
-    _playerStateSubscription = _audioService.playerStateStream.listen((state) {
-      if (mounted) {
+    _subscribeToAudioEvents();
+  }
+
+  void _subscribeToAudioEvents() {
+    // Listen to player state changes
+    _playerStateSubscription = _audioService.playbackStateStream.listen((event) {
+      if (!mounted) return;
+      // Check if the event is for THIS bubble's audio path
+      if (event.path == widget.note.audioPath) {
+        final state = event.data;
         setState(() {
           _isPlaying = state.playing;
           if (state.processingState == ProcessingState.completed) {
             _isPlaying = false;
-            _currentPosition = Duration.zero; // Reset position on completion
+            _currentPosition = Duration.zero; // Reset position on completion for this bubble
           }
         });
+      } else {
+        // If another audio started playing, ensure this one shows as stopped
+        if (_isPlaying) {
+          setState(() {
+            _isPlaying = false;
+            _currentPosition = Duration.zero;
+          });
+        }
       }
     });
 
     // Listen to position changes
-    _positionSubscription = _audioService.playbackPositionStream.listen((position) { // Use playbackPositionStream
-      if (mounted) {
+    _positionSubscription = _audioService.playbackPositionStream.listen((event) {
+      if (!mounted) return;
+      // Only update position if it's for this bubble's audio
+      if (event.path == widget.note.audioPath) {
         setState(() {
-          _currentPosition = position;
+          _currentPosition = event.data;
         });
+      } else {
+        // Reset position if another track is playing/seeking
+         if (_currentPosition != Duration.zero) {
+           setState(() { _currentPosition = Duration.zero; });
+         }
       }
     });
 
     // Listen to duration changes
-    _durationSubscription = _audioService.playbackDurationStream.listen((duration) { // Use playbackDurationStream
-       if (mounted && duration != null) {
-        setState(() {
-          // Correct type: Duration? to Duration
-          _totalDuration = duration; 
-        });
-      }
+    _durationSubscription = _audioService.playbackDurationStream.listen((event) {
+       if (!mounted) return;
+       // Only update duration if it's for this bubble's audio
+       if (event.path == widget.note.audioPath && event.data != null) {
+         setState(() {
+           _totalDuration = event.data!;
+         });
+       }
     });
   }
   
@@ -173,23 +198,28 @@ class _ChatBubbleState extends State<ChatBubble> {
     if (widget.note.audioPath == null || widget.note.audioPath!.isEmpty) return;
 
     try {
-      // Use the correct AudioService method
+      // Tell the service to play THIS bubble's audio path
       await _audioService.playAudio(widget.note.audioPath!); 
       
-      // Initial state might be set via listeners now, but we can still set isPlaying
-      if (mounted) {
-        // Use getDuration from AudioService
+      // State updates are now handled by the stream listeners
+      // We might still want an initial duration fetch if the stream hasn't emitted yet
+      if (mounted && _totalDuration == Duration.zero) {
         final duration = await _audioService.getDuration(); 
-        setState(() {
-          _isPlaying = true;
-          _totalDuration = duration ?? Duration.zero;
-        });
+        if (mounted && _audioService.currentlyPlayingPath == widget.note.audioPath) {
+           setState(() {
+             _totalDuration = duration ?? Duration.zero;
+           });
+        }
       }
 
     } catch (e) {
-      debugPrint("Error playing audio: $e");
+      debugPrint("Error playing audio for path ${widget.note.audioPath}: $e");
       if (mounted) {
-        setState(() { _isPlaying = false; });
+        // Ensure UI reflects stop state on error
+        setState(() { 
+           _isPlaying = false; 
+           _currentPosition = Duration.zero;
+        });
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Error playing audio: ${e.toString()}')),
         );
@@ -198,18 +228,18 @@ class _ChatBubbleState extends State<ChatBubble> {
   }
 
   Future<void> _stopAudio() async {
-    await _audioService.stopPlayback();
-    if (mounted) {
-      setState(() {
-        _isPlaying = false;
-        _currentPosition = Duration.zero;
-      });
+    // Only stop if this bubble's audio is the one currently playing
+    if (_audioService.currentlyPlayingPath == widget.note.audioPath) {
+      await _audioService.stopPlayback();
     }
+    // State updates (setting _isPlaying false) will happen via the stream listener
   }
 
   void _seekAudio(Duration position) {
-    // Use the correct AudioService method
-    _audioService.seek(position);
+     // Only allow seeking if this bubble's audio is the one playing
+    if (_audioService.currentlyPlayingPath == widget.note.audioPath) {
+       _audioService.seek(position);
+    }
   }
 
   @override
@@ -219,8 +249,8 @@ class _ChatBubbleState extends State<ChatBubble> {
     _positionSubscription?.cancel();
     _durationSubscription?.cancel();
     
-    // Stop playback if this bubble was playing
-    if (_isPlaying) {
+    // Check if THIS bubble's audio was the one playing before disposing
+    if (_audioService.currentlyPlayingPath == widget.note.audioPath) {
        _audioService.stopPlayback();
     }
     super.dispose();
@@ -230,16 +260,33 @@ class _ChatBubbleState extends State<ChatBubble> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final bool isUser = widget.note.isUserNote;
+    final bool isLightMode = theme.brightness == Brightness.light;
     
-    // Determine bubble background color from theme
-    final bubbleColor = isUser 
-        ? theme.colorScheme.primaryContainer // Use primary container for user
-        : theme.colorScheme.surfaceVariant; // Use surface variant for others
-            
-    // Determine text color based on bubble background
-    final textColor = isUser 
-        ? theme.colorScheme.onPrimaryContainer
+    // Determine bubble background color based on theme mode & user
+    final Color bubbleBgColor;
+    final Color textColor;
+    final Border? bubbleBorder = null; // No border for this approach
+    final List<BoxShadow>? bubbleShadow = [ // Keep subtle shadow
+       BoxShadow(
+         color: theme.colorScheme.shadow.withOpacity(isLightMode ? 0.08 : 0.05),
+         blurRadius: isLightMode ? 5 : 4,
+         offset: const Offset(0, 1),
+       )
+    ];
+
+    if (isLightMode) {
+      bubbleBgColor = isUser 
+        ? theme.colorScheme.surfaceContainerHighest // Slightly darker surface for user
+        : theme.colorScheme.surfaceContainer;     // Elevated surface for other
+      textColor = theme.colorScheme.onSurface; 
+    } else { // Dark Mode
+      bubbleBgColor = isUser 
+        ? theme.colorScheme.primaryContainer 
+        : theme.colorScheme.surfaceVariant;
+      textColor = isUser 
+        ? theme.colorScheme.onPrimaryContainer 
         : theme.colorScheme.onSurfaceVariant;
+    }
     
     final timestampText = '${widget.note.timestamp.hour}:${widget.note.timestamp.minute.toString().padLeft(2, '0')}';
     final hasContent = widget.note.content.trim().isNotEmpty;
@@ -252,24 +299,19 @@ class _ChatBubbleState extends State<ChatBubble> {
       child: GestureDetector(
         onLongPress: () => _showNoteOptions(context),
         child: Container(
-          constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.75), // Max width
+          constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.75),
           margin: const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
           padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
           decoration: BoxDecoration(
-            color: bubbleColor,
-            borderRadius: BorderRadius.only( // Modern chat bubble corners
+            color: bubbleBgColor, 
+            border: bubbleBorder, 
+            borderRadius: BorderRadius.only(
               topLeft: const Radius.circular(16),
               topRight: const Radius.circular(16),
               bottomLeft: Radius.circular(isUser ? 16 : 4),
               bottomRight: Radius.circular(isUser ? 4 : 16),
             ),
-            boxShadow: [
-              BoxShadow(
-                color: theme.colorScheme.shadow.withOpacity(0.05),
-                blurRadius: 4,
-                offset: const Offset(0, 1),
-              )
-            ]
+            boxShadow: bubbleShadow,
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -281,7 +323,7 @@ class _ChatBubbleState extends State<ChatBubble> {
                   padding: const EdgeInsets.only(bottom: 4.0),
                   child: Text(
                     widget.note.content,
-                    style: TextStyle(color: textColor, fontSize: 15), // Slightly larger font
+                    style: TextStyle(color: textColor, fontSize: 15), 
                   ),
                 ),
               
@@ -289,29 +331,64 @@ class _ChatBubbleState extends State<ChatBubble> {
               if (hasAudio)
                  Padding(
                     padding: EdgeInsets.only(top: hasContent ? 4 : 0, bottom: 4),
-                    child: _buildAudioPlayer(theme, textColor),
+                    child: _buildAudioPlayer(theme, textColor), // Pass correct text color
                  ),
               
               // Tags (if any)
               if (hasTags)
                 Padding(
-                  padding: EdgeInsets.only(top: hasAudio || hasContent ? 6.0 : 0), // Adjust top padding
+                  padding: EdgeInsets.only(top: hasAudio || hasContent ? 6.0 : 0),
                   child: Wrap(
                     spacing: 4,
                     runSpacing: 4,
                     children: widget.note.tags.map((tag) {
-                      return Chip(
-                         label: Text(tag),
-                         labelStyle: TextStyle(
-                           fontSize: 11,
-                           color: textColor.withOpacity(0.9), // Use text color variant
+                      // --- Unified Tag Styling ---
+                      final Color chipBackgroundColor = _getTagColor(tag, theme);
+                      final Color chipTextColor = _getTagTextColor(chipBackgroundColor, theme);
+                      final BorderSide chipBorderSide = BorderSide.none; // Generally avoid borders with colored chips
+                        
+                      return InkWell(
+                        onLongPress: () {
+                          HapticFeedback.mediumImpact();
+                          showDialog(
+                            context: context,
+                            builder: (context) => AlertDialog(
+                              title: const Text('Remove Tag'),
+                              content: Text('Remove #$tag from this note?'),
+                              actions: [
+                                TextButton(
+                                  onPressed: () => Navigator.pop(context),
+                                  child: const Text('Cancel'),
+                                ),
+                                TextButton(
+                                  onPressed: () {
+                                    Navigator.pop(context);
+                                    final updatedTags = List<String>.from(widget.note.tags)..remove(tag);
+                                    final noteController = Provider.of<NoteController>(context, listen: false);
+                                    noteController.updateNote(widget.note, tags: updatedTags);
+                                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Tag #$tag removed')));
+                                  },
+                                  child: const Text('Remove'),
+                                ),
+                              ],
+                            ),
+                          );
+                        },
+                        borderRadius: BorderRadius.circular(8), 
+                        child: Chip(
+                           label: Text('#$tag'),
+                           labelStyle: TextStyle(
+                             fontSize: 11,
+                             color: chipTextColor, 
+                           ),
+                           backgroundColor: chipBackgroundColor, 
+                           side: chipBorderSide, // Apply calculated border (now none)
+                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2), 
+                           materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                           visualDensity: VisualDensity.compact,
                          ),
-                         backgroundColor: bubbleColor.withOpacity(0.8), // Use bubble color variant
-                         side: BorderSide.none,
-                         padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 0),
-                         materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                         visualDensity: VisualDensity.compact,
-                       );
+                      );
                     }).toList(),
                   ),
                 ),
@@ -332,7 +409,7 @@ class _ChatBubbleState extends State<ChatBubble> {
                           child: Icon(
                             Icons.location_on_outlined,
                             size: 14,
-                            color: textColor.withOpacity(0.7),
+                            color: textColor.withOpacity(0.7), 
                           ),
                         ),
                       ),
@@ -341,7 +418,7 @@ class _ChatBubbleState extends State<ChatBubble> {
                     Text(
                       timestampText,
                       style: TextStyle(
-                        color: textColor.withOpacity(0.7),
+                        color: textColor.withOpacity(0.7), 
                         fontSize: 11,
                       ),
                     ),
@@ -428,5 +505,34 @@ class _ChatBubbleState extends State<ChatBubble> {
     final textColor = luminance > 0.5 ? Colors.black : Colors.white;
     _textColorCache[backgroundColor] = textColor;
     return textColor;
+  }
+
+  // --- Tag Color Helpers (can be moved to a common place later) ---
+
+  // Palette of modern accent colors
+  final List<Color> _tagAccentColors = [
+    const Color(0xFF38A3A5), // Teal
+    const Color(0xFF57CC99), // Mint Green
+    const Color(0xFF80ED99), // Bright Green
+    const Color(0xFFF4A261), // Sandy Brown
+    const Color(0xFFE76F51), // Burnt Sienna
+    const Color(0xFF2A9D8F), // Darker Teal
+    const Color(0xFF264653), // Dark Blue-Green
+    const Color(0xFFE9C46A), // Saffron
+  ];
+
+  // Helper function to get a consistent color based on the tag string
+  Color _getTagColor(String tag, ThemeData theme) {
+    // Use a simple hash to pick a color from the palette
+    final hashCode = tag.hashCode;
+    final color = _tagAccentColors[hashCode.abs() % _tagAccentColors.length];
+    return color;
+  }
+
+  Color _getTagTextColor(Color backgroundColor, ThemeData theme) {
+    // Use ThemeData standard for contrast
+    return ThemeData.estimateBrightnessForColor(backgroundColor) == Brightness.dark
+        ? Colors.white
+        : Colors.black;
   }
 }

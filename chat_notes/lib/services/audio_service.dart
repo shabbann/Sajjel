@@ -9,48 +9,56 @@ import 'package:record/record.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:path/path.dart' as path;
 
+// Custom Event Classes for Playback Streams
+class PlaybackEvent<T> {
+  final String? path;
+  final T data;
+  PlaybackEvent(this.path, this.data);
+}
+
 class AudioService {
   static final AudioService _instance = AudioService._internal();
   factory AudioService() => _instance;
   AudioService._internal() {
     _initRecorder();
     _initStreamControllers();
-    // Configure AudioPlayer listeners
-    _audioPlayer.positionStream.listen((position) {
-      // Optionally handle position updates globally if needed
-    });
-    _audioPlayer.durationStream.listen((duration) {
-      // Optionally handle duration updates globally if needed
-    });
-    _audioPlayer.playerStateStream.listen((state) {
-       // Optionally handle player state updates globally if needed
-    });
+    _setupPlaybackListeners(); // Setup listeners for the internal player
   }
 
   late final AudioRecorder _audioRecorder;
   final _audioPlayer = AudioPlayer();
+  String? _currentlyPlayingPath;
   
+  // Recording state
   String? _recordingPath;
   Timer? _recordingTimer;
   int _recordingDuration = 0;
   double _amplitude = 0.0;
-  late StreamController<int> _recordingDurationController; // Renamed for clarity
+  late StreamController<int> _recordingDurationController;
   late StreamController<double> _amplitudeStreamController;
+
+  // Custom Stream Controllers for Playback
+  late StreamController<PlaybackEvent<PlayerState>> _playbackStateController;
+  late StreamController<PlaybackEvent<Duration>> _playbackPositionController;
+  late StreamController<PlaybackEvent<Duration?>> _playbackDurationController;
   
+  // ---- Public Streams ----
   // Recording streams
   Stream<int> get recordingDurationStream => _recordingDurationController.stream;
   Stream<double> get amplitudeStream => _amplitudeStreamController.stream;
   
-  // Playback streams (directly from AudioPlayer)
-  Stream<PlayerState> get playerStateStream => _audioPlayer.playerStateStream;
-  Stream<Duration> get playbackPositionStream => _audioPlayer.positionStream;
-  Stream<Duration?> get playbackDurationStream => _audioPlayer.durationStream;
+  // Playback streams (Custom events)
+  Stream<PlaybackEvent<PlayerState>> get playbackStateStream => _playbackStateController.stream;
+  Stream<PlaybackEvent<Duration>> get playbackPositionStream => _playbackPositionController.stream;
+  Stream<PlaybackEvent<Duration?>> get playbackDurationStream => _playbackDurationController.stream;
 
   // Recording state getters
   bool get isRecording => _recordingTimer != null;
   int get recordingDuration => _recordingDuration;
   double get currentAmplitude => _amplitude;
   String? get currentRecordingPath => _recordingPath;
+  // Playback state getter
+  String? get currentlyPlayingPath => _currentlyPlayingPath;
 
   void _initRecorder() {
     _audioRecorder = AudioRecorder();
@@ -60,38 +68,71 @@ class AudioService {
     // Initialize recording-specific controllers
     _recordingDurationController = StreamController<int>.broadcast();
     _amplitudeStreamController = StreamController<double>.broadcast();
+    // Initialize playback-specific controllers
+    _playbackStateController = StreamController<PlaybackEvent<PlayerState>>.broadcast();
+    _playbackPositionController = StreamController<PlaybackEvent<Duration>>.broadcast();
+    _playbackDurationController = StreamController<PlaybackEvent<Duration?>>.broadcast();
+  }
+
+  void _setupPlaybackListeners() {
+    _audioPlayer.positionStream.listen((position) {
+      _safeAddToPlaybackStream(_playbackPositionController, PlaybackEvent(_currentlyPlayingPath, position));
+    });
+    _audioPlayer.durationStream.listen((duration) {
+      _safeAddToPlaybackStream(_playbackDurationController, PlaybackEvent(_currentlyPlayingPath, duration));
+    });
+    _audioPlayer.playerStateStream.listen((state) {
+       _safeAddToPlaybackStream(_playbackStateController, PlaybackEvent(_currentlyPlayingPath, state));
+       // If playback completed, clear the currently playing path
+       if (state.processingState == ProcessingState.completed) {
+         _currentlyPlayingPath = null;
+       }
+    });
+  }
+
+  // Helper to safely add to broadcast streams
+  void _safeAddToPlaybackStream<T>(StreamController<T> controller, T event) {
+    if (!controller.isClosed) {
+      controller.add(event);
+    }
   }
 
   // --- Playback Methods ---
 
   Future<void> playAudio(String path) async {
     try {
-      // Configure audio session for playback
       final session = await AudioSession.instance;
       await session.configure(const AudioSessionConfiguration(
         avAudioSessionCategory: AVAudioSessionCategory.playback,
         avAudioSessionMode: AVAudioSessionMode.defaultMode,
-        // ... other playback-specific configurations if needed ...
       ));
       
-      await _audioPlayer.stop(); // Stop previous playback
-      await _audioPlayer.setUrl('file://$path'); // Set new source
-      await _audioPlayer.play(); // Start playback
+      // Stop previous if different path or if not playing
+      if (_currentlyPlayingPath != path || !_audioPlayer.playing) {
+         await _audioPlayer.stop(); 
+      }
+      
+      _currentlyPlayingPath = path;
+      await _audioPlayer.setUrl('file://$path'); 
+      await _audioPlayer.play(); 
     } catch (e) {
       debugPrint('Error playing audio: $e');
-      rethrow; // Rethrow to be handled by the UI
+      _currentlyPlayingPath = null; // Reset path on error
+      rethrow; 
     }
   }
 
   Future<void> stopPlayback() async {
     try {
       await _audioPlayer.stop();
+      _currentlyPlayingPath = null; // Clear path on explicit stop
     } catch (e) {
       debugPrint('Error stopping playback: $e');
     }
   }
 
   Future<void> seek(Duration position) async {
+    // Seeking doesn't change the currently playing file
     try {
       await _audioPlayer.seek(position);
     } catch (e) {
@@ -100,7 +141,6 @@ class AudioService {
   }
   
   Future<Duration?> getDuration() async {
-     // Use the player's duration if available
      return _audioPlayer.duration;
   }
 
