@@ -11,9 +11,33 @@ import 'map_screen.dart';
 import 'package:geolocator/geolocator.dart';
 import 'dart:io' show Platform;
 import 'package:flutter/foundation.dart' show kIsWeb;
+import '../../theme/app_theme.dart';
 
-class SettingsScreen extends StatelessWidget {
+class SettingsScreen extends StatefulWidget {
   const SettingsScreen({Key? key}) : super(key: key);
+
+  @override
+  _SettingsScreenState createState() => _SettingsScreenState();
+}
+
+class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProviderStateMixin {
+  late AnimationController _animationController;
+  
+  @override
+  void initState() {
+    super.initState();
+    _animationController = AnimationController(
+      duration: const Duration(milliseconds: 300),
+      vsync: this,
+    );
+    _animationController.forward();
+  }
+  
+  @override
+  void dispose() {
+    _animationController.dispose();
+    super.dispose();
+  }
 
   bool get _isLocationSupported {
     if (kIsWeb) return false;
@@ -62,276 +86,193 @@ class SettingsScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final themeController = Provider.of<ThemeController>(context);
+    final theme = Theme.of(context);
+    
     return Scaffold(
       appBar: AppBar(
         title: const Text('Settings'),
+        centerTitle: true,
       ),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          _buildThemeSection(context),
-          const Divider(),
-          _buildChatSettings(context),
-          const Divider(),
-          if (_isLocationSupported) ...[
-            _buildLocationSection(context),
-            const Divider(),
-          ],
-          _buildDataSection(context),
-          const Divider(),
-          _buildAboutSection(context),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildThemeSection(BuildContext context) {
-    final themeController = context.watch<ThemeController>();
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          'Theme',
-          style: Theme.of(context).textTheme.titleLarge,
-        ),
-        const SizedBox(height: 16),
-        SegmentedButton<ThemeMode>(
-          segments: const [
-            ButtonSegment(
-              value: ThemeMode.system,
-              label: Text('System'),
+      body: AnimatedBuilder(
+        animation: _animationController,
+        builder: (context, child) {
+          return SlideTransition(
+            position: Tween<Offset>(
+              begin: const Offset(0, 0.05),
+              end: Offset.zero,
+            ).animate(CurvedAnimation(
+              parent: _animationController,
+              curve: Curves.easeOutCubic,
+            )),
+            child: FadeTransition(
+              opacity: _animationController,
+              child: child,
             ),
-            ButtonSegment(
-              value: ThemeMode.light,
-              label: Text('Light'),
-            ),
-            ButtonSegment(
-              value: ThemeMode.dark,
-              label: Text('Dark'),
-            ),
-          ],
-          selected: {themeController.themeMode},
-          onSelectionChanged: (Set<ThemeMode> selected) {
-            themeController.setThemeMode(selected.first);
-          },
-        ),
-        const SizedBox(height: 24),
-        Text(
-          'Color Scheme',
-          style: Theme.of(context).textTheme.titleLarge,
-        ),
-        const SizedBox(height: 16),
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: List.generate(4, (index) {
-            final colorScheme = themeController.colorSchemes[index % themeController.colorSchemes.length];
-            return InkWell(
-              onTap: () => themeController.setColorSchemeIndex(index),
-              child: Container(
-                width: 48,
-                height: 48,
-                decoration: BoxDecoration(
-                  color: colorScheme.primary,
-                  shape: BoxShape.circle,
-                  border: Border.all(
-                    color: themeController.colorSchemeIndex == index
-                        ? colorScheme.secondary
-                        : Colors.transparent,
-                    width: 2,
-                  ),
+          );
+        },
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(16.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _buildSectionTitle(context, 'Appearance'),
+              const SizedBox(height: 16),
+              
+              // Theme mode selection
+              _buildCard(
+                context,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.only(left: 16.0, top: 16.0, bottom: 8.0, right: 16.0),
+                      child: Text(
+                        'Theme Mode',
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 16.0,
+                          color: theme.colorScheme.onSurface,
+                        ),
+                      ),
+                    ),
+                    // Use Theme.listTileTheme for consistent styling
+                    _buildThemeRadioTile(themeController, theme, 'Light', ThemeMode.light),
+                    _buildThemeRadioTile(themeController, theme, 'Dark', ThemeMode.dark),
+                    _buildThemeRadioTile(themeController, theme, 'System', ThemeMode.system),
+                    const SizedBox(height: 8), // Add padding at the bottom
+                  ],
                 ),
               ),
-            );
-          }),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildChatSettings(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          'Chat Settings',
-          style: Theme.of(context).textTheme.titleLarge,
-        ),
-        const SizedBox(height: 16),
-        FutureBuilder<String?>(
-          future: PreferencesService.getDefaultChat(),
-          builder: (context, snapshot) {
-            final hasDefaultChat = snapshot.data != null;
-            
-            return ListTile(
-              leading: const Icon(Icons.home),
-              title: const Text('Default Chat'),
-              subtitle: Text(
-                hasDefaultChat 
-                    ? 'A default chat is set' 
-                    : 'No default chat set (will open last viewed)'
-              ),
-              trailing: hasDefaultChat ? 
-                IconButton(
-                  icon: const Icon(Icons.clear),
-                  onPressed: () async {
-                    await PreferencesService.saveDefaultChat(null);
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Default chat cleared')),
-                    );
-                    (context as Element).markNeedsBuild();
-                  },
-                ) : null,
-            );
-          },
-        ),
-        const ListTile(
-          leading: Icon(Icons.info_outline),
-          title: Text('Set Default Chat'),
-          subtitle: Text(
-            'Long-press any chat in the chat list to set or remove it as the default'
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildLocationSection(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          'Location',
-          style: Theme.of(context).textTheme.titleLarge,
-        ),
-        const SizedBox(height: 16),
-        ListTile(
-          leading: const Icon(Icons.location_on),
-          title: const Text('Current Location'),
-          subtitle: FutureBuilder<String?>(
-            future: LocationService.getLocationAddress(),
-            builder: (context, snapshot) {
-              if (snapshot.connectionState == ConnectionState.waiting) {
-                return const Text('Getting location...');
-              }
-              if (snapshot.hasError) {
-                return Text('Error: ${snapshot.error}');
-              }
-              return Text(snapshot.data ?? 'Location not available');
-            },
-          ),
-          trailing: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              IconButton(
-                icon: const Icon(Icons.map),
-                onPressed: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (context) => const MapScreen()),
-                  );
-                },
-              ),
-              IconButton(
-                icon: const Icon(Icons.refresh),
-                onPressed: () {
-                  (context as Element).markNeedsBuild();
-                },
+              
+              const SizedBox(height: 24),
+              
+              // About section
+              _buildSectionTitle(context, 'About'),
+              const SizedBox(height: 16),
+              _buildCard(
+                context,
+                child: Padding(
+                  padding: const EdgeInsets.all(16.0),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      ListTile(
+                        leading: Icon(
+                          Icons.info_outline,
+                          color: theme.colorScheme.primary,
+                        ),
+                        title: const Text('App Version'),
+                        trailing: const Text('1.0.0'),
+                      ),
+                      const Divider(),
+                      ListTile(
+                        leading: Icon(
+                          Icons.code,
+                          color: theme.colorScheme.primary,
+                        ),
+                        title: const Text('Source Code'),
+                        trailing: const Icon(Icons.open_in_new),
+                        onTap: () {
+                          // Open source code link
+                        },
+                      ),
+                    ],
+                  ),
+                ),
               ),
             ],
           ),
         ),
-        ListTile(
-          leading: const Icon(Icons.history),
-          title: const Text('Location History'),
-          subtitle: FutureBuilder<List<Position>>(
-            future: LocationService.getLocationHistory(),
-            builder: (context, snapshot) {
-              if (snapshot.connectionState == ConnectionState.waiting) {
-                return const Text('Loading history...');
-              }
-              if (snapshot.hasError) {
-                return Text('Error: ${snapshot.error}');
-              }
-              final history = snapshot.data ?? [];
-              return Text('${history.length} locations recorded');
-            },
-          ),
-          trailing: IconButton(
-            icon: const Icon(Icons.delete),
-            onPressed: () async {
-              await LocationService.clearLocationHistory();
-              (context as Element).markNeedsBuild();
-            },
-          ),
+      ),
+    );
+  }
+  
+  // Helper for Theme Radio Tiles with Lighter Glow Effect
+  Widget _buildThemeRadioTile(ThemeController controller, ThemeData theme, String title, ThemeMode value) {
+    final bool isSelected = controller.themeMode == value;
+
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 200),
+      margin: const EdgeInsets.symmetric(vertical: 3, horizontal: 8),
+      decoration: BoxDecoration(
+        color: isSelected 
+            ? theme.colorScheme.surfaceVariant 
+            : theme.colorScheme.surface,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: isSelected 
+              ? theme.colorScheme.primary 
+              : theme.colorScheme.outline.withOpacity(0.2),
+          width: isSelected ? 1.0 : 0.5,
         ),
-      ],
+        boxShadow: isSelected ? [
+          BoxShadow(
+            color: theme.colorScheme.primary.withOpacity(0.08),
+            blurRadius: 4,
+            spreadRadius: 0,
+          )
+        ] : null,
+      ),
+      child: RadioListTile<ThemeMode>(
+        title: Text(
+          title, 
+          style: TextStyle(
+            fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+            color: theme.colorScheme.onSurface,
+          )
+        ),
+        value: value,
+        groupValue: controller.themeMode,
+        onChanged: (ThemeMode? newValue) {
+          if (newValue != null) {
+            controller.setThemeMode(newValue);
+          }
+        },
+        activeColor: theme.colorScheme.primary,
+        selected: isSelected,
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+        visualDensity: VisualDensity.compact,
+      ),
+    );
+  }
+  
+  Widget _buildSectionTitle(BuildContext context, String title) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 8.0),
+      child: Text(
+        title,
+        style: TextStyle(
+          fontSize: 18,
+          fontWeight: FontWeight.bold,
+          color: Theme.of(context).colorScheme.primary,
+        ),
+      ),
+    );
+  }
+  
+  Widget _buildCard(BuildContext context, {required Widget child}) {
+    return Card(
+      elevation: Theme.of(context).cardTheme.elevation ?? 0.5,
+      shape: Theme.of(context).cardTheme.shape, // Use theme shape
+      color: Theme.of(context).cardTheme.color, // Use theme color
+      child: child,
     );
   }
 
-  Widget _buildDataSection(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          'Data',
-          style: Theme.of(context).textTheme.titleLarge,
-        ),
-        const SizedBox(height: 16),
-        ListTile(
-          leading: const Icon(Icons.backup),
-          title: const Text('Backup Data'),
-          onTap: () => _backupData(context),
-        ),
-        ListTile(
-          leading: const Icon(Icons.restore),
-          title: const Text('Restore Data'),
-          onTap: () => _restoreData(context),
-        ),
-      ],
-    );
+  Color _getThemeModeColor(ThemeMode themeMode, ThemeMode selectedMode, ThemeData theme) {
+    if (themeMode == selectedMode) {
+      return theme.colorScheme.surfaceVariant;
+    } else {
+      return theme.colorScheme.surface;
+    }
   }
 
-  Widget _buildAboutSection(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          'About',
-          style: Theme.of(context).textTheme.titleLarge,
-        ),
-        const SizedBox(height: 16),
-        ListTile(
-          leading: const Icon(Icons.info),
-          title: const Text('About Sajjel'),
-          onTap: () {
-            showAboutDialog(
-              context: context,
-              applicationName: 'Sajjel',
-              applicationVersion: '1.0.0',
-              applicationLegalese: '© 2024 Sajjel',
-              children: [
-                const Text(
-                  'A modern note-taking app with location features and beautiful themes.',
-                  textAlign: TextAlign.center,
-                ),
-                if (!_isLocationSupported) ...[
-                  const SizedBox(height: 8),
-                  const Text(
-                    'Note: Location features are not available on this platform.',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontStyle: FontStyle.italic,
-                      color: Colors.grey,
-                    ),
-                  ),
-                ],
-              ],
-            );
-          },
-        ),
-      ],
-    );
+  Color _getBorderColor(ThemeMode themeMode, ThemeMode selectedMode, ThemeData theme) {
+    if (themeMode == selectedMode) {
+      return theme.colorScheme.primary;
+    } else {
+      return theme.colorScheme.outline.withOpacity(0.2);
+    }
   }
 }

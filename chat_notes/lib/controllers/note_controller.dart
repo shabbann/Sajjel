@@ -72,9 +72,15 @@ class NoteController extends ChangeNotifier {
       audioPath: audioPath,
     );
 
-    await databaseService.insertNote(note);
-    _hasNewNote = true;
-    await loadNotes();
+    try {
+      await databaseService.insertNote(note);
+      _hasNewNote = true;
+      await loadNotes();
+    } catch (e) {
+      debugPrint("Error adding note: $e");
+      // Rethrow the exception to be handled by the UI layer
+      rethrow;
+    }
   }
 
   Future<void> updateNote(Note note, {
@@ -100,12 +106,24 @@ class NoteController extends ChangeNotifier {
       audioPath: audioPath ?? note.audioPath,
     );
 
-    await databaseService.updateNote(updatedNote);
-    await loadNotes();
+    try {
+      await databaseService.updateNote(updatedNote);
+      await loadNotes();
+    } catch (e) {
+      debugPrint("Error updating note: $e");
+      // Rethrow the exception to be handled by the UI layer
+      rethrow;
+    }
   }
 
   Future<void> deleteNote(String noteId) async {
-    await databaseService.deleteNote(noteId);
-    await loadNotes();
+    try {
+      await databaseService.deleteNote(noteId);
+      await loadNotes();
+    } catch (e) {
+      debugPrint("Error deleting note: $e");
+      // Rethrow the exception to be handled by the UI layer
+      rethrow;
+    }
   }
 } 

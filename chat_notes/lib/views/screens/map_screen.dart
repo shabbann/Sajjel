@@ -3,6 +3,9 @@ import 'package:geolocator/geolocator.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import '../../services/location_service.dart';
+import '../../services/database_service.dart';
+import '../../models/chat_model.dart';
+import '../../models/note_model.dart';
 import 'dart:io' show Platform;
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:url_launcher/url_launcher.dart';
@@ -17,9 +20,11 @@ class MapScreen extends StatefulWidget {
 class _MapScreenState extends State<MapScreen> {
   Position? _currentPosition;
   bool _isLoading = true;
-  MapController _mapController = MapController();
+  final MapController _mapController = MapController();
   List<Marker> _markers = [];
   double _currentZoom = 15.0;
+  final DatabaseService _databaseService = DatabaseService();
+  bool _mapInitialized = false;
 
   bool get _isMapSupported {
     if (kIsWeb) return false;
@@ -29,7 +34,16 @@ class _MapScreenState extends State<MapScreen> {
   @override
   void initState() {
     super.initState();
-    _loadCurrentLocation();
+    // Delay the location loading to ensure the map is rendered first
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _loadCurrentLocation();
+    });
+  }
+  
+  @override
+  void dispose() {
+    _mapController.dispose();
+    super.dispose();
   }
 
   Future<void> _loadCurrentLocation() async {
@@ -43,8 +57,8 @@ class _MapScreenState extends State<MapScreen> {
           _setupMarkers();
         });
         
-        // Update map position
-        if (_currentPosition != null) {
+        // Update map position if the map is initialized
+        if (_currentPosition != null && _mapInitialized) {
           _mapController.move(
             LatLng(_currentPosition!.latitude, _currentPosition!.longitude),
             15,
@@ -123,11 +137,13 @@ class _MapScreenState extends State<MapScreen> {
   }
 
   void _zoomIn() {
+    if (!_mapInitialized) return;
     _currentZoom = (_currentZoom + 1).clamp(3.0, 18.0);
     _mapController.move(_mapController.camera.center, _currentZoom);
   }
 
   void _zoomOut() {
+    if (!_mapInitialized) return;
     _currentZoom = (_currentZoom - 1).clamp(3.0, 18.0);
     _mapController.move(_mapController.camera.center, _currentZoom);
   }
@@ -139,7 +155,7 @@ class _MapScreenState extends State<MapScreen> {
     
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Location Map'),
+        title: const Text('Map'),
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh),
@@ -148,117 +164,124 @@ class _MapScreenState extends State<MapScreen> {
           ),
         ],
       ),
-      body: _isLoading
-          ? Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  CircularProgressIndicator(),
-                  SizedBox(height: 16),
-                  Text('Getting your location...'),
-                ],
-              ),
-            )
-          : _currentPosition == null
-              ? Center(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(Icons.location_off, size: 64, color: Colors.grey),
-                      SizedBox(height: 16),
-                      Text('Location not available',
-                          style: Theme.of(context).textTheme.titleMedium),
-                      SizedBox(height: 8),
-                      ElevatedButton.icon(
-                        icon: Icon(Icons.refresh),
-                        label: Text('Try Again'),
-                        onPressed: _loadCurrentLocation,
-                      ),
-                    ],
-                  ),
-                )
-              : Stack(
+      body: _buildMapView(isDarkMode),
+    );
+  }
+  
+  Widget _buildMapView(bool isDarkMode) {
+    return _isLoading
+        ? Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                CircularProgressIndicator(),
+                SizedBox(height: 16),
+                Text('Getting your location...'),
+              ],
+            ),
+          )
+        : _currentPosition == null
+            ? Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
                   children: [
-                    FlutterMap(
-                      mapController: _mapController,
-                      options: MapOptions(
-                        initialCenter: LatLng(
-                          _currentPosition!.latitude,
-                          _currentPosition!.longitude,
-                        ),
-                        initialZoom: 15,
-                        minZoom: 3,
-                        maxZoom: 18,
-                      ),
-                      children: [
-                        TileLayer(
-                          // Use dark mode tiles if in dark mode
-                          urlTemplate: isDarkMode
-                              ? 'https://cartodb-basemaps-{s}.global.ssl.fastly.net/dark_all/{z}/{x}/{y}.png'
-                              : 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                          subdomains: const ['a', 'b', 'c'],
-                          userAgentPackageName: 'com.sajjel.app',
-                          maxZoom: 19,
-                          tileBuilder: (context, widget, tile) {
-                            return Container(
-                              decoration: BoxDecoration(
-                                borderRadius: BorderRadius.circular(2),
-                              ),
-                              child: widget,
-                            );
-                          },
-                        ),
-                        MarkerLayer(markers: _markers),
-                        RichAttributionWidget(
-                          attributions: [
-                            TextSourceAttribution(
-                              isDarkMode
-                                  ? '© CartoDB | © OpenStreetMap contributors'
-                                  : '© OpenStreetMap contributors',
-                              onTap: () => launchUrl(Uri.parse('https://openstreetmap.org/copyright')),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                    // Map Controls
-                    Positioned(
-                      right: 16,
-                      bottom: 96,
-                      child: Column(
-                        children: [
-                          FloatingActionButton.small(
-                            heroTag: 'zoom_in',
-                            onPressed: _zoomIn,
-                            child: Icon(Icons.add),
-                            tooltip: 'Zoom in',
-                          ),
-                          SizedBox(height: 8),
-                          FloatingActionButton.small(
-                            heroTag: 'zoom_out',
-                            onPressed: _zoomOut,
-                            child: Icon(Icons.remove),
-                            tooltip: 'Zoom out',
-                          ),
-                          SizedBox(height: 8),
-                          FloatingActionButton.small(
-                            heroTag: 'my_location',
-                            onPressed: () {
-                              if (_currentPosition != null) {
-                                _mapController.move(
-                                  LatLng(_currentPosition!.latitude, _currentPosition!.longitude),
-                                  15,
-                                );
-                              }
-                            },
-                            child: Icon(Icons.my_location),
-                            tooltip: 'My location',
-                          ),
-                        ],
-                      ),
+                    Icon(Icons.location_off, size: 64, color: Colors.grey),
+                    SizedBox(height: 16),
+                    Text('Location not available',
+                        style: Theme.of(context).textTheme.titleMedium),
+                    SizedBox(height: 8),
+                    ElevatedButton.icon(
+                      icon: Icon(Icons.refresh),
+                      label: Text('Try Again'),
+                      onPressed: _loadCurrentLocation,
                     ),
                   ],
                 ),
-    );
+              )
+            : Stack(
+                children: [
+                  FlutterMap(
+                    mapController: _mapController,
+                    options: MapOptions(
+                      initialCenter: LatLng(
+                        _currentPosition?.latitude ?? 0,
+                        _currentPosition?.longitude ?? 0,
+                      ),
+                      initialZoom: 15,
+                      minZoom: 3,
+                      maxZoom: 18,
+                      onMapReady: () {
+                        setState(() {
+                          _mapInitialized = true;
+                          if (_currentPosition != null) {
+                            _mapController.move(
+                              LatLng(_currentPosition!.latitude, _currentPosition!.longitude),
+                              15,
+                            );
+                          }
+                        });
+                      },
+                    ),
+                    children: [
+                      TileLayer(
+                        // Use dark mode tiles if in dark mode
+                        urlTemplate: isDarkMode
+                            ? 'https://cartodb-basemaps-{s}.global.ssl.fastly.net/dark_all/{z}/{x}/{y}.png'
+                            : 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                        subdomains: const ['a', 'b', 'c'],
+                        userAgentPackageName: 'com.sajjel.app',
+                        maxZoom: 19,
+                      ),
+                      MarkerLayer(markers: _markers),
+                      RichAttributionWidget(
+                        attributions: [
+                          TextSourceAttribution(
+                            isDarkMode
+                                ? '© CartoDB | © OpenStreetMap contributors'
+                                : '© OpenStreetMap contributors',
+                            onTap: () => launchUrl(Uri.parse('https://openstreetmap.org/copyright')),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                  // Map Controls
+                  Positioned(
+                    right: 16,
+                    bottom: 96,
+                    child: Column(
+                      children: [
+                        FloatingActionButton.small(
+                          heroTag: 'zoom_in',
+                          onPressed: _zoomIn,
+                          child: Icon(Icons.add),
+                          tooltip: 'Zoom in',
+                        ),
+                        SizedBox(height: 8),
+                        FloatingActionButton.small(
+                          heroTag: 'zoom_out',
+                          onPressed: _zoomOut,
+                          child: Icon(Icons.remove),
+                          tooltip: 'Zoom out',
+                        ),
+                        SizedBox(height: 8),
+                        FloatingActionButton.small(
+                          heroTag: 'my_location',
+                          onPressed: () {
+                            if (_currentPosition != null) {
+                              _mapController.move(
+                                LatLng(_currentPosition!.latitude, _currentPosition!.longitude),
+                                15,
+                              );
+                            }
+                          },
+                          child: Icon(Icons.my_location),
+                          tooltip: 'My location',
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              );
   }
 } 

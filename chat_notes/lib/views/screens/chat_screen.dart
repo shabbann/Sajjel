@@ -16,6 +16,7 @@ import '../../features/search/global_search_delegate.dart';
 import './settings_screen.dart';
 import './location_map_screen.dart';
 import './chat_list_screen.dart';
+import '../screens/tag_manager_screen.dart';
 
 class ChatScreen extends StatefulWidget {
   final String chatId;
@@ -38,12 +39,22 @@ class _ChatScreenState extends State<ChatScreen> {
   @override
   void initState() {
     super.initState();
+    
+    // Set the current chat ID immediately
+    context.read<NoteController>().setCurrentChat(widget.chatId);
+    
+    // Save as last opened chat (this is a lightweight operation)
+    PreferencesService.saveLastOpenedChat(widget.chatId);
+    
+    // Defer heavier operations with different delays to avoid UI jank
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      context.read<NoteController>().setCurrentChat(widget.chatId);
-      _loadChats();
-      _loadCurrentChatName();
-      // Save this as the last opened chat
-      PreferencesService.saveLastOpenedChat(widget.chatId);
+      // Stage 1: Most critical operations for the UI
+      _loadCurrentChatName(); // Load name first for the app bar
+      
+      // Stage 2: Less critical operations with a slight delay
+      Future.delayed(const Duration(milliseconds: 100), () {
+        _loadChats();
+      });
     });
   }
 
@@ -60,13 +71,43 @@ class _ChatScreenState extends State<ChatScreen> {
 
   Future<void> _loadCurrentChatName() async {
     try {
-      final chats = await _databaseService.getChats();
-      final currentChat = chats.firstWhere((chat) => chat.id == widget.chatId);
+      // First check if we already have the chats loaded to avoid duplicate database calls
+      if (_chats.isNotEmpty) {
+        final currentChat = _chats.firstWhere(
+          (chat) => chat.id == widget.chatId,
+          orElse: () => Chat(id: widget.chatId, name: 'Chat', createdAt: DateTime.now()),
+        );
+        
+        if (mounted) {
+          setState(() {
+            _currentChatName = currentChat.name;
+          });
+        }
+        return;
+      }
+      
+      // If we don't have chats loaded, load just this chat's name
+      final dbService = DatabaseService();
+      final chats = await dbService.getChats();
+      
+      if (!mounted) return;
+      
+      final currentChat = chats.firstWhere(
+        (chat) => chat.id == widget.chatId,
+        orElse: () => Chat(id: widget.chatId, name: 'Chat', createdAt: DateTime.now()),
+      );
+      
       setState(() {
         _currentChatName = currentChat.name;
       });
     } catch (e) {
-      print('Error loading current chat name: $e');
+      // Use a default name in case of error
+      if (mounted) {
+        setState(() {
+          _currentChatName = 'Chat';
+        });
+      }
+      debugPrint('Error loading current chat name: $e');
     }
   }
 
@@ -117,22 +158,50 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   void _handleSubmitted(String text, List<String> tags, String? color, double? latitude, double? longitude, String? locationName, String? audioPath) {
-    if (text.isEmpty) return;
-    
-    final trimmedText = text.trim();
-    if (trimmedText.isNotEmpty) {
-      Provider.of<NoteController>(context, listen: false).addNote(
-        trimmedText, 
-        true, 
-        tags: tags,
-        color: color,
-        latitude: latitude,
-        longitude: longitude,
-        locationName: locationName,
-        audioPath: audioPath,
+    try {
+      // Handle empty text case but allow audio-only messages
+      if (text.isEmpty && audioPath == null) {
+        debugPrint('Empty message: no text and no audio');
+        return;
+      }
+      
+      final trimmedText = text.trim();
+      debugPrint('Submitting message. Text: ${trimmedText.isNotEmpty ? 'Yes' : 'No'}, Audio: ${audioPath != null ? 'Yes' : 'No'}');
+      
+      // Fix database connection first
+      _databaseService.closeAndReopen().then((_) {
+        final noteController = Provider.of<NoteController>(context, listen: false);
+        
+        // Ensure we have the right chat ID
+        noteController.setCurrentChat(widget.chatId);
+        
+        // Add the note
+        noteController.addNote(
+          trimmedText, 
+          true, 
+          tags: tags,
+          color: color,
+          latitude: latitude,
+          longitude: longitude,
+          locationName: locationName,
+          audioPath: audioPath,
+        );
+        
+        _textController.clear();
+        _scrollToBottom();
+        
+        debugPrint('Note added successfully');
+      }).catchError((error) {
+        debugPrint('Error reconnecting to database: $error');
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error sending message: $error')),
+        );
+      });
+    } catch (e) {
+      debugPrint('Error submitting message: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error submitting message: $e')),
       );
-      _textController.clear();
-      _scrollToBottom();
     }
   }
 
@@ -463,6 +532,7 @@ class _ChatScreenState extends State<ChatScreen> {
                 ),
               ),
             ),
+
           IconButton(
             icon: const Icon(Icons.search),
             tooltip: 'Search in this chat',
@@ -628,7 +698,7 @@ class _ChatScreenState extends State<ChatScreen> {
           ),
           ChatInput(
             textController: _textController,
-            onSubmitted: _handleSubmitted,
+            chatId: widget.chatId,
           ),
         ],
       ),
@@ -636,19 +706,24 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Widget _buildDrawer() {
+    final theme = Theme.of(context);
+    final noteController = Provider.of<NoteController>(context, listen: false);
+    final hasNotes = noteController.notes.isNotEmpty;
+    final hasLocations = noteController.notes.any((note) => note.hasLocation);
+    final hasTags = noteController.notes.any((note) => note.tags.isNotEmpty);
+
+    // Use const for spacing widgets
+    const divider = Divider();
+    const sizedBox12 = SizedBox(height: 12);
+    const sizedBox4 = SizedBox(height: 4);
+    
     return Drawer(
       child: Column(
         children: [
+          // Use selective rebuilding for the drawer header
           DrawerHeader(
             decoration: BoxDecoration(
-              gradient: LinearGradient(
-                colors: [
-                  Theme.of(context).primaryColor,
-                  Theme.of(context).primaryColor.withOpacity(0.7),
-                ],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
+              color: theme.colorScheme.primary,
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -659,7 +734,7 @@ class _ChatScreenState extends State<ChatScreen> {
                       width: 60,
                       height: 60,
                       decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.2),
+                        color: theme.colorScheme.onPrimary.withOpacity(0.2),
                         borderRadius: BorderRadius.circular(15),
                       ),
                       child: Center(
@@ -668,27 +743,27 @@ class _ChatScreenState extends State<ChatScreen> {
                           style: TextStyle(
                             fontSize: 32,
                             fontWeight: FontWeight.bold,
-                            color: Colors.white,
+                            color: theme.colorScheme.onPrimary,
                           ),
                         ),
                       ),
                     ),
-                    SizedBox(width: 12),
+                    const SizedBox(width: 12),
                     Text(
                       'Sajjel',
                       style: TextStyle(
-                        color: Colors.white,
+                        color: theme.colorScheme.onPrimary,
                         fontSize: 24,
                         fontWeight: FontWeight.bold,
                       ),
                     ),
                   ],
                 ),
-                SizedBox(height: 12),
+                sizedBox12,
                 Text(
                   'Smart Notes with Location',
                   style: TextStyle(
-                    color: Colors.white70,
+                    color: theme.colorScheme.onPrimary.withOpacity(0.7),
                     fontSize: 14,
                   ),
                 ),
@@ -699,77 +774,56 @@ class _ChatScreenState extends State<ChatScreen> {
             child: ListView(
               padding: EdgeInsets.zero,
               children: [
-                ListTile(
-                  leading: Icon(Icons.search),
-                  title: Text('Search All Notes'),
-                  onTap: () {
-                    Navigator.pop(context);
-                    _showGlobalSearch();
-                  },
-                ),
-                ListTile(
-                  leading: Icon(Icons.note_alt_outlined),
-                  title: Text('All Chats'),
-                  onTap: () {
-                    Navigator.pop(context);
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => ChatListScreen(),
-                      ),
-                    );
-                  },
-                ),
-                ListTile(
-                  leading: Icon(Icons.map),
-                  title: Text('Location Map'),
-                  onTap: () {
-                    Navigator.pop(context);
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => LocationMapScreen(
-                          notes: Provider.of<NoteController>(context, listen: false).notes.cast<Note>(),
-                          title: 'Location Map',
+                // Current chat info
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Current Chat',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: theme.colorScheme.onSurface.withOpacity(0.6),
                         ),
                       ),
-                    );
-                  },
+                      sizedBox4,
+                      Text(
+                        _currentChatName,
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
+                divider,
+                
+                // Action section - Create these widgets with memoization 
+                _buildActionSection(hasNotes, hasLocations, hasTags, theme),
+                divider,
+
+                // Navigation section - Extract to reduce rebuilds
+                _buildNavigationSection(theme),
+                divider,
+                
+                // Settings section
                 ListTile(
-                  leading: Icon(Icons.tag),
-                  title: Text('Filter by Tags'),
-                  onTap: () {
-                    Navigator.pop(context);
-                    _showTagFilter();
-                  },
-                ),
-                Divider(),
-                ListTile(
-                  leading: Icon(Icons.settings),
-                  title: Text('Settings'),
+                  leading: const Icon(Icons.settings),
+                  title: const Text('Settings'),
                   onTap: () {
                     Navigator.pop(context);
                     Navigator.push(
                       context,
                       MaterialPageRoute(
-                        builder: (context) => SettingsScreen(),
+                        builder: (context) => const SettingsScreen(),
                       ),
                     );
                   },
                 ),
-                Consumer<ThemeController>(
-                  builder: (context, themeController, child) {
-                    return SwitchListTile(
-                      secondary: Icon(themeController.isDarkMode ? Icons.dark_mode : Icons.light_mode),
-                      title: Text(themeController.isDarkMode ? 'Dark Mode' : 'Light Mode'),
-                      value: themeController.isDarkMode,
-                      onChanged: (value) {
-                        themeController.toggleTheme();
-                      },
-                    );
-                  }
-                ),
+                // Use a separate builder for theme toggling to prevent rebuilding the whole drawer
+                _buildThemeToggle(),
               ],
             ),
           ),
@@ -778,13 +832,127 @@ class _ChatScreenState extends State<ChatScreen> {
             child: Text(
               '© 2023 Sajjel',
               style: TextStyle(
-                color: Colors.grey,
+                color: theme.colorScheme.onSurface.withOpacity(0.5),
                 fontSize: 12,
               ),
             ),
           ),
         ],
       ),
+    );
+  }
+  
+  // Extract action section to a separate method
+  Widget _buildActionSection(bool hasNotes, bool hasLocations, bool hasTags, ThemeData theme) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        ListTile(
+          leading: const Icon(Icons.search),
+          title: const Text('Search in This Chat'),
+          enabled: hasNotes,
+          onTap: hasNotes ? () {
+            Navigator.pop(context);
+            showSearch(
+              context: context,
+              delegate: NoteSearchDelegate(chatId: widget.chatId),
+            );
+          } : null,
+        ),
+        ListTile(
+          leading: const Icon(Icons.search),
+          title: const Text('Search All Notes'),
+          onTap: () {
+            Navigator.pop(context);
+            _showGlobalSearch();
+          },
+        ),
+        if (hasLocations)
+          ListTile(
+            leading: const Icon(Icons.map),
+            title: const Text('View Notes on Map'),
+            onTap: () {
+              Navigator.pop(context);
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => LocationMapScreen(
+                    notes: Provider.of<NoteController>(context, listen: false).notes.cast<Note>(),
+                    title: '$_currentChatName - Map',
+                  ),
+                ),
+              );
+            },
+          ),
+        if (hasTags)
+          ListTile(
+            leading: const Icon(Icons.tag),
+            title: const Text('Filter by Tags'),
+            onTap: () {
+              Navigator.pop(context);
+              _showTagFilter();
+            },
+          ),
+      ],
+    );
+  }
+  
+  // Extract navigation section to a separate method
+  Widget _buildNavigationSection(ThemeData theme) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        ListTile(
+          leading: const Icon(Icons.note_alt_outlined),
+          title: const Text('All Chats'),
+          onTap: () {
+            Navigator.pop(context);
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => const ChatListScreen(),
+              ),
+            );
+          },
+        ),
+        ListTile(
+          leading: const Icon(Icons.add_circle_outline),
+          title: const Text('New Chat'),
+          onTap: () {
+            Navigator.pop(context);
+            _createNewChat();
+          },
+        ),
+        ListTile(
+          leading: const Icon(Icons.manage_search),
+          title: const Text('Manage Tags'),
+          onTap: () {
+            Navigator.pop(context);
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => TagManagerScreen(chatId: widget.chatId),
+              ),
+            );
+          },
+        ),
+      ],
+    );
+  }
+  
+  // Extract theme toggle to prevent rebuilding the entire drawer
+  Widget _buildThemeToggle() {
+    return Consumer<ThemeController>(
+      builder: (context, themeController, child) {
+        return SwitchListTile(
+          secondary: Icon(themeController.isDarkMode ? Icons.dark_mode : Icons.light_mode),
+          title: Text(themeController.isDarkMode ? 'Dark Mode' : 'Light Mode'),
+          value: themeController.isDarkMode,
+          onChanged: (value) {
+            themeController.toggleTheme();
+          },
+        );
+      }
     );
   }
 

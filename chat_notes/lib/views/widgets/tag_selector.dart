@@ -23,16 +23,16 @@ class _TagSelectorState extends State<TagSelector> with SingleTickerProviderStat
   late AnimationController _animationController;
   late Animation<double> _scaleAnimation;
   
-  // Predefined pastel colors that work well in both light and dark themes
+  // Monochrome colors for minimalist modern design
   final List<Color> _availableColors = [
-    const Color(0xFFF5F5F5), // Light gray
-    const Color(0xFFFFCDD2), // Pastel red
-    const Color(0xFFBBDEFB), // Pastel blue
-    const Color(0xFFC8E6C9), // Pastel green
-    const Color(0xFFFFF9C4), // Pastel yellow
-    const Color(0xFFE1BEE7), // Pastel purple
-    const Color(0xFFFFE0B2), // Pastel orange
-    const Color(0xFFB2DFDB), // Pastel teal
+    const Color(0xFFFFFFFF), // White
+    const Color(0xFFF0F0F0), // Very light gray
+    const Color(0xFFE0E0E0), // Light gray
+    const Color(0xFFC0C0C0), // Medium gray
+    const Color(0xFF909090), // Dark gray
+    const Color(0xFF606060), // Darker gray
+    const Color(0xFF303030), // Very dark gray
+    const Color(0xFF121212), // Nearly black
   ];
   
   // Suggested tags (these could come from a database in a real implementation)
@@ -92,7 +92,7 @@ class _TagSelectorState extends State<TagSelector> with SingleTickerProviderStat
               hintText: 'Enter a new tag name',
               prefixIcon: Icon(Icons.tag, color: Theme.of(context).colorScheme.primary),
               border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
+                borderRadius: BorderRadius.circular(8),
                 borderSide: BorderSide(color: Theme.of(context).colorScheme.outline),
               ),
             ),

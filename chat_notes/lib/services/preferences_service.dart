@@ -5,6 +5,8 @@ class PreferencesService {
   static const String _lastOpenedChatKey = 'last_opened_chat';
   static const String _defaultChatKey = 'default_chat';
   static const String _themeModeKey = 'theme_mode';
+  static const String _themeKey = 'themeMode';
+  static const String _colorSchemeKey = 'colorSchemeIndex';
 
   // Get the last opened chat ID
   static Future<String?> getLastOpenedChat() async {
@@ -59,5 +61,16 @@ class PreferencesService {
   static Future<void> saveThemeMode(ThemeMode themeMode) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setInt(_themeModeKey, themeMode.index);
+  }
+
+  // Get/save color scheme index
+  static Future<int?> getColorSchemeIndex() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getInt(_colorSchemeKey);
+  }
+
+  static Future<void> saveColorSchemeIndex(int index) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt(_colorSchemeKey, index);
   }
 } 

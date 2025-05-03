@@ -1,157 +1,90 @@
 // controllers/theme_controller.dart
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'dart:async';
+import '../services/preferences_service.dart';
 import '../theme/app_theme.dart';
-import 'package:chat_notes/services/preferences_service.dart';
 
 class ThemeController extends ChangeNotifier {
-  static const String _themeKey = 'themeMode';
-  static const String _colorKey = 'colorScheme';
-  
-  int _colorSchemeIndex = 0;
-  // Initialize with a default value to avoid late initialization error
   ThemeMode _themeMode = ThemeMode.system;
-  bool _isLoaded = false;
-
-  // Getters
+  int _colorSchemeIndex = 0;
+  bool _isLoading = false;
+  
+  // Public getters
   ThemeMode get themeMode => _themeMode;
-  bool get isDarkMode => _themeMode == ThemeMode.dark || 
-      (_themeMode == ThemeMode.system && 
-       WidgetsBinding.instance.platformDispatcher.platformBrightness == Brightness.dark);
   int get colorSchemeIndex => _colorSchemeIndex;
+  bool get isLoading => _isLoading;
+  
+  // Computed property for dark mode detection
+  bool get isDarkMode => _themeMode == ThemeMode.dark || 
+                         (_themeMode == ThemeMode.system && 
+                          WidgetsBinding.instance.platformDispatcher.platformBrightness == Brightness.dark);
 
-  // Color schemes with predefined colors
-  final List<ColorScheme> colorSchemes = [
-    // Blue
-    const ColorScheme.light(
-      primary: Color(0xFF3F51B5),
-      secondary: Color(0xFF2196F3),
-      tertiary: Color(0xFF00BCD4),
-    ),
-    // Green
-    const ColorScheme.light(
-      primary: Color(0xFF4CAF50),
-      secondary: Color(0xFF8BC34A),
-      tertiary: Color(0xFFCDDC39),
-    ),
-    // Purple
-    const ColorScheme.light(
-      primary: Color(0xFF673AB7),
-      secondary: Color(0xFF9C27B0),
-      tertiary: Color(0xFFE91E63),
-    ),
-    // Orange
-    const ColorScheme.light(
-      primary: Color(0xFFFF9800),
-      secondary: Color(0xFFFF5722),
-      tertiary: Color(0xFFF44336),
-    ),
-  ];
-
+  // Constructor
   ThemeController() {
-    loadThemeMode();
+    _initThemeSettings();
   }
 
-  Future<void> loadThemeMode() async {
+  // Initialize theme settings
+  Future<void> _initThemeSettings() async {
+    _setLoading(true);
     try {
-      _themeMode = await PreferencesService.getThemeMode();
-    } catch (e) {
-      // If there's an error, keep the default system theme
-      _themeMode = ThemeMode.system;
+      await _loadThemePreferences();
+    } finally {
+      _setLoading(false);
     }
-    _isLoaded = true;
-    _loadThemePreference();
+  }
+
+  // Load theme preferences from storage
+  Future<void> _loadThemePreferences() async {
+    final savedThemeMode = await PreferencesService.getThemeMode();
+    final savedColorSchemeIndex = await PreferencesService.getColorSchemeIndex() ?? 0;
+    
+    _themeMode = savedThemeMode;
+    _colorSchemeIndex = savedColorSchemeIndex;
     notifyListeners();
   }
 
-  Future<void> _loadThemePreference() async {
-    final prefs = await SharedPreferences.getInstance();
-    final themeIndex = prefs.getInt(_themeKey);
-    
-    if (themeIndex != null) {
-      _themeMode = ThemeMode.values[themeIndex];
-    }
-    
-    _colorSchemeIndex = prefs.getInt(_colorKey) ?? 0;
+  // Set loading state
+  void _setLoading(bool value) {
+    _isLoading = value;
     notifyListeners();
   }
 
-  Future<void> _saveThemePreference() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setInt(_themeKey, _themeMode.index);
-    await prefs.setInt(_colorKey, _colorSchemeIndex);
-  }
-
+  // Set theme mode with auto-save
   Future<void> setThemeMode(ThemeMode mode) async {
     if (_themeMode == mode) return;
     
     _themeMode = mode;
     await PreferencesService.saveThemeMode(mode);
-    _saveThemePreference();
     notifyListeners();
   }
 
-  void setColorSchemeIndex(int index) {
-    if (index >= 0 && index < colorSchemes.length) {
-      _colorSchemeIndex = index;
-      _saveThemePreference();
-      notifyListeners();
-    }
-  }
-
-  ThemeData getTheme() {
-    // Start with the base theme from AppTheme
-    final baseTheme = isDarkMode 
-        ? AppTheme.getDarkTheme() 
-        : AppTheme.getLightTheme();
+  // Set color scheme index with auto-save
+  Future<void> setColorSchemeIndex(int index) async {
+    if (_colorSchemeIndex == index) return;
     
-    // Apply the selected color scheme
-    return baseTheme.copyWith(
-      colorScheme: isDarkMode
-          ? colorSchemes[_colorSchemeIndex].copyWith(brightness: Brightness.dark)
-          : colorSchemes[_colorSchemeIndex],
-      primaryColor: colorSchemes[_colorSchemeIndex].primary,
-      appBarTheme: AppBarTheme(
-        backgroundColor: colorSchemes[_colorSchemeIndex].primary,
-        foregroundColor: Colors.white,
-      ),
-      floatingActionButtonTheme: FloatingActionButtonThemeData(
-        backgroundColor: colorSchemes[_colorSchemeIndex].primary,
-        foregroundColor: Colors.white,
-      ),
-    );
+    _colorSchemeIndex = index;
+    await PreferencesService.saveColorSchemeIndex(index);
+    notifyListeners();
   }
 
-  bool get isLoaded => _isLoaded;
+  // Toggle between light and dark theme
+  Future<void> toggleTheme() async {
+    final newMode = _themeMode == ThemeMode.light ? ThemeMode.dark : ThemeMode.light;
+    await setThemeMode(newMode);
+  }
 
-  Future<void> toggleThemeMode() async {
-    switch (_themeMode) {
-      case ThemeMode.light:
-        await setThemeMode(ThemeMode.dark);
-        break;
-      case ThemeMode.dark:
-        await setThemeMode(ThemeMode.system);
-        break;
-      case ThemeMode.system:
-        await setThemeMode(ThemeMode.light);
-        break;
+  // Get ThemeData based on current settings
+  ThemeData getTheme() {
+    if (isDarkMode) {
+      return AppTheme.getDarkTheme();
+    } else {
+      return AppTheme.getLightTheme();
     }
   }
-
-  // Light theme colors
-  static final lightColorScheme = ColorScheme.fromSeed(
-    seedColor: const Color(0xFF4CAF50),
-    brightness: Brightness.light,
-  );
-
-  // Dark theme colors
-  static final darkColorScheme = ColorScheme.fromSeed(
-    seedColor: const Color(0xFF4CAF50),
-    brightness: Brightness.dark,
-  );
-
-  // Add method to toggle theme
-  Future<void> toggleTheme() async {
-    await toggleThemeMode();
+  
+  // Reload theme preferences from storage
+  Future<void> refreshThemeSettings() async {
+    await _loadThemePreferences();
   }
 }
