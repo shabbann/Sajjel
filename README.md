@@ -1,16 +1,11 @@
-# chat_notes
 
-A new Flutter project.
+# Sajjel
 
-## Getting Started
+## About Sajjel
+Sajjel (Arabic for "record" or "log") is a mobile app that makes note-taking feel as natural as chatting. Instead of traditional note lists, Sajjel organizes your thoughts into conversation-like threads, letting you capture ideas exactly when they come to you.
 
-This project is a starting point for a Flutter application.
+### Chat-Style Notes
+Take notes in a familiar chat interface - just type and send, just like texting a friend. Group related thoughts, project notes, or daily logs in separate chat threads.
 
-A few resources to get you started if this is your first Flutter project:
-
-- [Lab: Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Cookbook: Useful Flutter samples](https://docs.flutter.dev/cookbook)
-
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+---
+(yeah this readme is LLM also)
