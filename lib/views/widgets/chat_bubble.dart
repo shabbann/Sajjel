@@ -14,9 +14,9 @@ import 'package:flutter/rendering.dart';
 
 class ChatBubble extends StatefulWidget {
   final Note note;
-  final VoidCallback? onDeleted;
+  final VoidCallback? onDelete;
 
-  const ChatBubble({super.key, required this.note, this.onDeleted});
+  const ChatBubble({super.key, required this.note, this.onDelete});
 
   @override
   State<ChatBubble> createState() => _ChatBubbleState();
@@ -86,10 +86,10 @@ class _ChatBubbleState extends State<ChatBubble> {
        if (!mounted) return;
        // Only update duration if it's for this bubble's audio
        if (event.path == widget.note.audioPath && event.data != null) {
-         setState(() {
+        setState(() {
            _totalDuration = event.data!;
-         });
-       }
+        });
+      }
     });
   }
   
@@ -137,11 +137,8 @@ class _ChatBubbleState extends State<ChatBubble> {
                   )
                 ) ?? false;
                 
-                if(confirm) {
-                  await noteController.deleteNote(widget.note.id);
-                  if (widget.onDeleted != null) {
-                    widget.onDeleted!();
-                  }
+                if(confirm && widget.onDelete != null) {
+                  widget.onDelete!();
                 }
             }, isDestructive: true),
           ],
@@ -186,10 +183,12 @@ class _ChatBubbleState extends State<ChatBubble> {
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (context) => LocationMapScreen(
-          notes: [widget.note],
-          title: 'Note Location',
-        ),
+        builder: (context) {
+          // Navigate to the full map screen
+          return LocationMapScreen(
+            title: 'Note Location',
+          );
+        },
       ),
     );
   }
@@ -206,9 +205,9 @@ class _ChatBubbleState extends State<ChatBubble> {
       if (mounted && _totalDuration == Duration.zero) {
         final duration = await _audioService.getDuration(); 
         if (mounted && _audioService.currentlyPlayingPath == widget.note.audioPath) {
-           setState(() {
-             _totalDuration = duration ?? Duration.zero;
-           });
+        setState(() {
+          _totalDuration = duration ?? Duration.zero;
+        });
         }
       }
 
@@ -230,7 +229,7 @@ class _ChatBubbleState extends State<ChatBubble> {
   Future<void> _stopAudio() async {
     // Only stop if this bubble's audio is the one currently playing
     if (_audioService.currentlyPlayingPath == widget.note.audioPath) {
-      await _audioService.stopPlayback();
+    await _audioService.stopPlayback();
     }
     // State updates (setting _isPlaying false) will happen via the stream listener
   }
@@ -238,7 +237,7 @@ class _ChatBubbleState extends State<ChatBubble> {
   void _seekAudio(Duration position) {
      // Only allow seeking if this bubble's audio is the one playing
     if (_audioService.currentlyPlayingPath == widget.note.audioPath) {
-       _audioService.seek(position);
+    _audioService.seek(position);
     }
   }
 
@@ -284,7 +283,7 @@ class _ChatBubbleState extends State<ChatBubble> {
         ? theme.colorScheme.primaryContainer 
         : theme.colorScheme.surfaceVariant;
       textColor = isUser 
-        ? theme.colorScheme.onPrimaryContainer 
+        ? theme.colorScheme.onPrimaryContainer
         : theme.colorScheme.onSurfaceVariant;
     }
     
@@ -377,18 +376,18 @@ class _ChatBubbleState extends State<ChatBubble> {
                         borderRadius: BorderRadius.circular(8), 
                         child: Chip(
                            label: Text('#$tag'),
-                           labelStyle: TextStyle(
-                             fontSize: 11,
+                         labelStyle: TextStyle(
+                           fontSize: 11,
                              color: chipTextColor, 
-                           ),
+                         ),
                            backgroundColor: chipBackgroundColor, 
                            side: chipBorderSide, // Apply calculated border (now none)
                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2), 
-                           materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                           visualDensity: VisualDensity.compact,
+                         materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                         visualDensity: VisualDensity.compact,
                          ),
-                      );
+                       );
                     }).toList(),
                   ),
                 ),
@@ -409,7 +408,7 @@ class _ChatBubbleState extends State<ChatBubble> {
                           child: Icon(
                             Icons.location_on_outlined,
                             size: 14,
-                            color: textColor.withOpacity(0.7), 
+                            color: textColor.withOpacity(0.7),
                           ),
                         ),
                       ),
@@ -418,7 +417,7 @@ class _ChatBubbleState extends State<ChatBubble> {
                     Text(
                       timestampText,
                       style: TextStyle(
-                        color: textColor.withOpacity(0.7), 
+                        color: textColor.withOpacity(0.7),
                         fontSize: 11,
                       ),
                     ),

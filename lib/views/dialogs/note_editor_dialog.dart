@@ -77,20 +77,6 @@ class _NoteEditorDialogState extends State<NoteEditorDialog> {
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (context) => LocationMapScreen(
-          notes: [
-            Note(
-              id: widget.note.id,
-              content: _contentController.text,
-              timestamp: widget.note.timestamp,
-              isUserNote: widget.note.isUserNote,
-              chatId: widget.note.chatId,
-              tags: _tags,
-              color: _color,
-              latitude: _latitude,
-              longitude: _longitude,
-              locationName: _locationName,
-            ),
-          ],
           title: 'Note Location',
         ),
       ),
@@ -113,6 +99,9 @@ class _NoteEditorDialogState extends State<NoteEditorDialog> {
                 border: OutlineInputBorder(),
               ),
             ),
+            const SizedBox(height: 16),
+            // Tags Section
+            _buildTagsSection(context),
             const SizedBox(height: 16),
             // Location section
             if (LocationService.isLocationSupported)
@@ -205,6 +194,102 @@ class _NoteEditorDialogState extends State<NoteEditorDialog> {
           child: Text('Save'),
         ),
       ],
+    );
+  }
+
+  Widget _buildTagsSection(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text('Tags', style: Theme.of(context).textTheme.titleSmall),
+            TextButton.icon(
+              icon: const Icon(Icons.add, size: 18),
+              label: const Text('Add Tag'),
+              onPressed: _showAddTagDialog,
+               style: TextButton.styleFrom(
+                 padding: EdgeInsets.zero,
+                 tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+               ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        _tags.isEmpty
+            ? Text(
+                'No tags added.',
+                style: TextStyle(color: Theme.of(context).disabledColor),
+              )
+            : Wrap(
+                spacing: 6.0,
+                runSpacing: 6.0,
+                children: _tags.map((tag) => _buildTagChip(tag, context)).toList(),
+              ),
+      ],
+    );
+  }
+
+  Widget _buildTagChip(String tag, BuildContext context) {
+    return Chip(
+      label: Text('#$tag'),
+      onDeleted: () {
+        setState(() {
+          _tags.remove(tag);
+        });
+      },
+      deleteIconColor: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+      visualDensity: VisualDensity.compact,
+    );
+  }
+
+  void _showAddTagDialog() {
+    final TextEditingController tagController = TextEditingController();
+    showDialog(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Add Tag'),
+        content: TextField(
+          controller: tagController,
+          decoration: const InputDecoration(
+            hintText: 'Enter tag name',
+             prefixText: '# ',
+             border: OutlineInputBorder(),
+          ),
+          autofocus: true,
+          textCapitalization: TextCapitalization.none,
+           onSubmitted: (value) {
+            final newTag = value.replaceAll('#', '').trim();
+            if (newTag.isNotEmpty && !_tags.contains(newTag)) {
+              Navigator.pop(dialogContext);
+              setState(() {
+                _tags.add(newTag);
+              });
+            }
+          },
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () {
+               final newTag = tagController.text.replaceAll('#', '').trim();
+               if (newTag.isNotEmpty && !_tags.contains(newTag)) {
+                 Navigator.pop(dialogContext);
+                 setState(() {
+                   _tags.add(newTag);
+                 });
+               }
+            },
+            child: const Text('Add'),
+          ),
+        ],
+      ),
     );
   }
 

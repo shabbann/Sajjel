@@ -10,6 +10,10 @@ import 'package:provider/provider.dart';
 import '../../controllers/chat_list_controller.dart';
 import '../../controllers/theme_controller.dart';
 import '../../controllers/note_controller.dart';
+import 'package:flutter_animate/flutter_animate.dart';
+import '../../features/chat_management/chat_actions.dart';
+import './location_map_screen.dart';
+import './map_launcher.dart';
 
 class ChatListScreen extends StatefulWidget {
   final bool showAppBar;
@@ -161,6 +165,37 @@ class _ChatListScreenState extends State<ChatListScreen> {
             });
           },
         ),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.map_outlined),
+            tooltip: 'View All Locations',
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const LocationMapScreen(),
+                ),
+              );
+            },
+          ),
+          IconButton(
+            icon: Icon(Icons.search),
+            onPressed: () {
+              setState(() {
+                _isSearching = true;
+              });
+            },
+          ),
+          IconButton(
+            icon: Icon(Icons.more_vert),
+            onPressed: () => _scaffoldKey.currentState?.openDrawer(),
+            style: IconButton.styleFrom(
+              backgroundColor: Colors.transparent,
+            ),
+            visualDensity: VisualDensity.compact,
+            padding: EdgeInsets.zero,
+          ),
+        ],
       );
     }
     
@@ -168,6 +203,18 @@ class _ChatListScreenState extends State<ChatListScreen> {
       automaticallyImplyLeading: false,
       title: Text('Sajjel'),
       actions: [
+        IconButton(
+          icon: const Icon(Icons.map_outlined),
+          tooltip: 'View All Locations',
+          onPressed: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => const LocationMapScreen(),
+              ),
+            );
+          },
+        ),
         IconButton(
           icon: Icon(Icons.search),
           onPressed: () {
@@ -268,7 +315,33 @@ class _ChatListScreenState extends State<ChatListScreen> {
                     _showGlobalSearch();
                   },
                 ),
+                ListTile(
+                  leading: Icon(Icons.map),
+                  title: Text('Global Location Map'),
+                  onTap: () {
+                    Navigator.pop(context);
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => const LocationMapScreen(),
+                      ),
+                    );
+                  },
+                ),
                 Divider(),
+                ListTile(
+                  leading: Icon(Icons.bug_report),
+                  title: Text('Map Troubleshooting'),
+                  onTap: () {
+                    Navigator.pop(context);
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => const MapLauncherScreen(),
+                      ),
+                    );
+                  },
+                ),
                 ListTile(
                   leading: Icon(Icons.brightness_6),
                   title: Text('Theme: ${_getThemeModeName()}'),
@@ -349,7 +422,9 @@ class _ChatListScreenState extends State<ChatListScreen> {
     return FloatingActionButton(
       onPressed: _createNewChat,
       child: Icon(Icons.add),
-    );
+    )
+    .animate()
+    .scale(duration: 400.ms, curve: Curves.elasticOut);
   }
 
   String _getThemeModeName() {
@@ -548,6 +623,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
 
                 if (shouldDelete) {
                   await controller.deleteChat(chat.id);
+                  
                   if (isDefault) {
                     await PreferencesService.saveDefaultChat(null);
                   }
@@ -555,6 +631,14 @@ class _ChatListScreenState extends State<ChatListScreen> {
                   if (noteController.currentChatId == chat.id) {
                      noteController.setCurrentChat(''); 
                   }
+
+                  // Single SnackBar message
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('Chat "${chat.name}" deleted'),
+                      duration: Duration(seconds: 2),
+                    ),
+                  );
                 }
               } else if (value == 'default') {
                 _setAsDefaultChat(chat.id);
@@ -589,7 +673,10 @@ class _ChatListScreenState extends State<ChatListScreen> {
           },
         ),
       ),
-    );
+    )
+    .animate()
+    .fadeIn(duration: 300.ms, delay: 50.ms, curve: Curves.easeOut)
+    .slideY(begin: 0.2, end: 0, duration: 300.ms, curve: Curves.easeOut);
   }
 
   void _onChatTap(String chatId, String chatName) {

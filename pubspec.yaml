@@ -55,6 +55,7 @@ dependencies:
   record: ^5.0.1  # For voice recording
   audio_session: ^0.1.18  # For audio session management
   just_audio: ^0.9.36  # For audio playback
+  flutter_animate: ^4.5.0 # Add flutter_animate
 
 dev_dependencies:
   flutter_test:

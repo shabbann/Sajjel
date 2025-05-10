@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart'; // Import for HapticFeedback
 import 'package:provider/provider.dart';
+import 'package:flutter_animate/flutter_animate.dart'; // Import flutter_animate
 import '../../controllers/note_controller.dart';
 import '../../controllers/theme_controller.dart';
 import '../../models/chat_model.dart';
@@ -33,6 +34,14 @@ class _ChatScreenState extends State<ChatScreen> {
   final ScrollController _scrollController = ScrollController();
   final DatabaseService _databaseService = DatabaseService();
   List<Chat> _chats = [];
+  
+  // Directly store notes in state
+  List<dynamic> _notes = [];
+  bool _isLoading = false;
+  
+  // Add a key for forcing ListView rebuilds
+  int _dbVersion = 0;
+  
   String _currentChatName = 'Sajjel';
   List<String> _selectedTags = [];
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
@@ -40,6 +49,10 @@ class _ChatScreenState extends State<ChatScreen> {
   @override
   void initState() {
     super.initState();
+    
+    // Register as a listener for database changes
+    _databaseService.addListener(_onDatabaseChanged);
+    _dbVersion = _databaseService.changeVersion;
     
     // Save as last opened chat (this is a lightweight operation)
     PreferencesService.saveLastOpenedChat(widget.chatId);
@@ -49,14 +62,23 @@ class _ChatScreenState extends State<ChatScreen> {
       // Stage 1: Most critical operations for the UI
       _loadCurrentChatName(); // Load name first for the app bar
       
-      // Set the current chat ID immediately after the first frame
-      Provider.of<NoteController>(context, listen: false).setCurrentChat(widget.chatId);
+      // Load notes directly rather than through controller
+      _loadNotes();
       
       // Stage 2: Less critical operations with a slight delay
       Future.delayed(const Duration(milliseconds: 100), () {
         _loadChats();
       });
     });
+  }
+
+  // Callback for database changes
+  void _onDatabaseChanged() {
+    debugPrint('ChatScreen: Database changed notification received');
+    setState(() {
+      _dbVersion = _databaseService.changeVersion;
+    });
+    _loadNotes();
   }
 
   Future<void> _loadChats() async {
@@ -109,6 +131,32 @@ class _ChatScreenState extends State<ChatScreen> {
         });
       }
       debugPrint('Error loading current chat name: $e');
+    }
+  }
+
+  Future<void> _loadNotes() async {
+    if (mounted) {
+      setState(() {
+        _isLoading = true;
+      });
+    }
+    
+    try {
+      final notes = await _databaseService.getNotesByChatId(widget.chatId);
+      
+      if (mounted) {
+        setState(() {
+          _notes = notes;
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      debugPrint('Error loading notes: $e');
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
     }
   }
 
@@ -169,35 +217,20 @@ class _ChatScreenState extends State<ChatScreen> {
       final trimmedText = text.trim();
       debugPrint('Submitting message. Text: ${trimmedText.isNotEmpty ? 'Yes' : 'No'}, Audio: ${audioPath != null ? 'Yes' : 'No'}');
       
-      // Fix database connection first
-      _databaseService.closeAndReopen().then((_) {
-        final noteController = Provider.of<NoteController>(context, listen: false);
-        
-        // Ensure we have the right chat ID
-        noteController.setCurrentChat(widget.chatId);
-        
-        // Add the note
-        noteController.addNote(
-          trimmedText, 
-          true, 
-          tags: tags,
-          color: color,
-          latitude: latitude,
-          longitude: longitude,
-          locationName: locationName,
-          audioPath: audioPath,
-        );
-        
-        _textController.clear();
-        _scrollToBottom();
-        
-        debugPrint('Note added successfully');
-      }).catchError((error) {
-        debugPrint('Error reconnecting to database: $error');
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error sending message: $error')),
-        );
-      });
+      // Add the note directly
+      _addNote(
+        trimmedText, 
+        true, 
+        tags: tags,
+        color: color,
+        latitude: latitude,
+        longitude: longitude,
+        locationName: locationName,
+        audioPath: audioPath,
+      );
+      
+      _textController.clear();
+      
     } catch (e) {
       debugPrint('Error submitting message: $e');
       ScaffoldMessenger.of(context).showSnackBar(
@@ -452,7 +485,6 @@ class _ChatScreenState extends State<ChatScreen> {
                                                 ScaffoldMessenger.of(context).showSnackBar(
                                                   SnackBar(content: Text('Tag #$tag removed'))
                                                 );
-                                                Provider.of<NoteController>(context, listen: false).loadNotes();
                                               } catch (e) {
                                                 ScaffoldMessenger.of(context).showSnackBar(
                                                   SnackBar(content: Text('Error removing tag: $e'))
@@ -633,11 +665,91 @@ class _ChatScreenState extends State<ChatScreen> {
     });
   }
 
+  // Custom deleteNote method using direct database call and state update
+  Future<void> _deleteNote(Note note) async {
+    try {
+      await _databaseService.deleteNote(note.id, note.chatId);
+      // Always reload from DB after delete
+      final notes = await _databaseService.getNotesByChatId(widget.chatId);
+      if (mounted) {
+        setState(() {
+          _notes = notes;
+        });
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Note deleted'))
+      );
+    } catch (e) {
+      debugPrint('Error deleting note: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error deleting note: $e'))
+        );
+      }
+    }
+  }
+
+  // Add note directly
+  Future<void> _addNote(String content, bool isUserNote, {
+    List<String> tags = const [], 
+    String? color,
+    double? latitude,
+    double? longitude,
+    String? locationName,
+    String? audioPath
+  }) async {
+    final note = Note(
+      id: DateTime.now().toString(),
+      content: content,
+      timestamp: DateTime.now(),
+      isUserNote: isUserNote,
+      chatId: widget.chatId,
+      tags: tags,
+      color: color,
+      latitude: latitude,
+      longitude: longitude,
+      locationName: locationName,
+      audioPath: audioPath,
+    );
+
+    try {
+      // Insert the note into the database
+      await _databaseService.insertNote(note);
+      
+      // Let the database listener handle the UI update via _loadNotes()
+      // Remove the local addition:
+      // if (mounted) {
+      //   setState(() {
+      //     _notes.add(note);
+      //   });
+      //   _scrollToBottom();
+      // }
+      
+      // Optionally, scroll to bottom optimistically
+      if(mounted) {
+        _scrollToBottom();
+      }
+      
+    } catch (e) {
+      debugPrint('Error adding note: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error adding note: $e'))
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       key: _scaffoldKey,
+      drawer: _buildDrawer(),
       appBar: AppBar(
+        leading: IconButton(
+          icon: const Icon(Icons.menu),
+          onPressed: () => _scaffoldKey.currentState?.openDrawer(),
+        ),
         title: Row(
           children: [
             Expanded(
@@ -706,14 +818,10 @@ class _ChatScreenState extends State<ChatScreen> {
             onSelected: (value) async {
               switch (value) {
                 case 'edit':
-                  await ChatActions.renameChatDialog(
-                    context,
-                    widget.chatId,
-                    _currentChatName,
-                    () {
-                      _loadCurrentChatName();
-                    },
-                  );
+                  // ... existing code ...
+                  break;
+                case 'filter': 
+                  _showTagFilter();
                   break;
                 case 'export':
                   _showExportOptions();
@@ -756,8 +864,7 @@ class _ChatScreenState extends State<ChatScreen> {
                   Navigator.push(
                     context,
                     MaterialPageRoute(
-                      builder: (context) => LocationMapScreen(
-                        notes: Provider.of<NoteController>(context, listen: false).notes.cast<Note>(),
+                      builder: (context) => const LocationMapScreen(
                         title: 'Chat Locations',
                       ),
                     ),
@@ -767,99 +874,67 @@ class _ChatScreenState extends State<ChatScreen> {
             },
             itemBuilder: (BuildContext context) => [
               const PopupMenuItem<String>(
-                value: 'edit',
-                child: Row(
-                  children: [
-                    Icon(Icons.edit, size: 20),
-                    SizedBox(width: 8),
-                    Text('Rename Chat'),
-                  ],
-                ),
+                value: 'filter',
+                child: Text('Filter by Tag'),
               ),
               const PopupMenuItem<String>(
                 value: 'export',
-                child: Row(
-                  children: [
-                    Icon(Icons.file_download, size: 20),
-                    SizedBox(width: 8),
-                    Text('Export Chat'),
-                  ],
-                ),
-              ),
-              const PopupMenuItem<String>(
-                value: 'map',
-                child: Row(
-                  children: [
-                    Icon(Icons.map, size: 20),
-                    SizedBox(width: 8),
-                    Text('View on Map'),
-                  ],
-                ),
-              ),
-              const PopupMenuItem<String>(
-                value: 'delete',
-                child: Row(
-                  children: [
-                    Icon(Icons.delete, size: 20, color: Colors.red),
-                    SizedBox(width: 8),
-                    Text('Delete Chat', style: TextStyle(color: Colors.red)),
-                  ],
-                ),
+                child: Text('Export Chat'),
               ),
               const PopupMenuItem<String>(
                 value: 'settings',
-                child: Row(
-                  children: [
-                    Icon(Icons.settings, size: 20),
-                    SizedBox(width: 8),
-                    Text('Settings'),
-                  ],
-                ),
+                child: Text('Settings'),
               ),
             ],
+            icon: const Icon(Icons.more_vert),
           ),
         ],
       ),
       body: Column(
         children: [
           Expanded(
-            child: Consumer<NoteController>(
-              builder: (context, controller, child) {
-                final notes = _selectedTags.isEmpty
-                    ? controller.notes
-                    : controller.notes.where((note) {
-                        return note.tags.any((tag) => _selectedTags.contains(tag));
-                      }).toList();
-                
-                WidgetsBinding.instance.addPostFrameCallback((_) {
-                  if (controller.hasNewNote) {
-                    _scrollToBottom();
-                    controller.resetNewNoteFlag();
-                  }
-                });
-
-                return ListView.builder(
-                  controller: _scrollController,
-                  itemCount: notes.length,
-                  itemBuilder: (context, index) {
-                    final note = notes[index];
-                    return ChatBubble(
-                      note: note,
-                      onDeleted: () {
-                        controller.deleteNote(note.id);
-                      },
-                    );
-                  },
-                );
-              },
-            ),
+            // Use a key that changes when database changes to force rebuild
+            key: ValueKey('notes_list_${widget.chatId}_v$_dbVersion'),
+            child: _isLoading
+                ? const Center(child: CircularProgressIndicator())
+                : _buildNoteList(),
           ),
           ChatInput(
             textController: _textController,
             chatId: widget.chatId,
+            onSubmit: _handleSubmitted,
           ),
         ],
       ),
+    );
+  }
+  
+  Widget _buildNoteList() {
+    final filteredNotes = _selectedTags.isEmpty
+        ? _notes
+        : _notes.where((note) {
+            return note.tags.any((tag) => _selectedTags.contains(tag));
+          }).toList();
+            
+    return ListView.builder(
+      controller: _scrollController,
+      itemCount: filteredNotes.length,
+      itemBuilder: (context, index) {
+        final note = filteredNotes[index];
+        // Determine slide direction based on isUserNote
+        // final double slideBeginX = note.isUserNote ? 0.2 : -0.2; // Animation removed
+        return KeyedSubtree(
+          key: ValueKey('note_${note.id}'),
+          child: ChatBubble(
+            note: note,
+            onDelete: () => _deleteNote(note),
+          )
+          // Remove the animation chain
+          // .animate()
+          // .fadeIn(duration: 400.ms, curve: Curves.easeOut)
+          // .slideX(begin: slideBeginX, end: 0, duration: 300.ms, curve: Curves.easeOutCubic),
+        );
+      },
     );
   }
 
@@ -1035,7 +1110,6 @@ class _ChatScreenState extends State<ChatScreen> {
                 context,
                 MaterialPageRoute(
                   builder: (context) => LocationMapScreen(
-                    notes: Provider.of<NoteController>(context, listen: false).notes.cast<Note>(),
                     title: '$_currentChatName - Map',
                   ),
                 ),
@@ -1116,6 +1190,8 @@ class _ChatScreenState extends State<ChatScreen> {
 
   @override
   void dispose() {
+    // Unregister from database change notifications
+    _databaseService.removeListener(_onDatabaseChanged);
     _textController.dispose();
     _scrollController.dispose();
     super.dispose();

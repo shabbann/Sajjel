@@ -9,6 +9,8 @@ import '../../models/note_model.dart';
 import 'dart:io' show Platform;
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:url_launcher/url_launcher.dart';
+import 'location_map_screen.dart';
+import 'map_launcher.dart'; // Import map launcher
 
 class MapScreen extends StatefulWidget {
   const MapScreen({Key? key}) : super(key: key);
@@ -162,9 +164,29 @@ class _MapScreenState extends State<MapScreen> {
             onPressed: _loadCurrentLocation,
             tooltip: 'Refresh location',
           ),
+          IconButton(
+            icon: const Icon(Icons.new_releases),
+            tooltip: 'Map Testing',
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const MapLauncherScreen()),
+              );
+            },
+          ),
         ],
       ),
       body: _buildMapView(isDarkMode),
+      floatingActionButton: FloatingActionButton(
+        onPressed: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (context) => const MapLauncherScreen()),
+          );
+        },
+        tooltip: 'Test Maps',
+        child: const Icon(Icons.map_outlined),
+      ),
     );
   }
   

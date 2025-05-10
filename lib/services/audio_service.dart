@@ -16,7 +16,7 @@ class PlaybackEvent<T> {
   PlaybackEvent(this.path, this.data);
 }
 
-class AudioService {
+class AudioService extends ChangeNotifier {
   static final AudioService _instance = AudioService._internal();
   factory AudioService() => _instance;
   AudioService._internal() {

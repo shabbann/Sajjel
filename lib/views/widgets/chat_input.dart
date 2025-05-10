@@ -42,12 +42,14 @@ Color _getTagTextColor(Color backgroundColor, ThemeData theme) {
 class ChatInput extends StatefulWidget {
   final TextEditingController textController;
   final String chatId;
+  final Function(String, List<String>, String?, double?, double?, String?, String?) onSubmit;
 
   const ChatInput({
-    super.key,
+    Key? key,
     required this.textController,
     required this.chatId,
-  });
+    required this.onSubmit,
+  }) : super(key: key);
 
   @override
   State<ChatInput> createState() => _ChatInputState();
@@ -114,17 +116,26 @@ class _ChatInputState extends State<ChatInput> with SingleTickerProviderStateMix
   
   bool get _canSend => widget.textController.text.trim().isNotEmpty;
 
-  Future<void> _sendMessage() async {
-    if (!_canSend && _recordingPath == null) return;
+  void _sendMessage() {
+    if (_audioService.isRecording) {
+      _stopRecording();
+      return;
+    }
 
-    final text = widget.textController.text.trim();
-    final tags = List<String>.from(_selectedTags);
-    final lat = _currentLocation?.latitude;
-    final lon = _currentLocation?.longitude;
-    final locName = _locationName;
-    final audioPath = _recordingPath;
+    String text = widget.textController.text.trim();
+    if (text.isEmpty && _recordingPath == null) return;
 
-    widget.textController.clear();
+    widget.onSubmit(
+      text,
+      _selectedTags,
+      null, // No color implementation 
+      _currentLocation?.latitude,
+      _currentLocation?.longitude,
+      _locationName,
+      _recordingPath,
+    );
+
+    // Reset state
     setState(() {
       _selectedTags = [];
       _currentLocation = null;
@@ -132,32 +143,10 @@ class _ChatInputState extends State<ChatInput> with SingleTickerProviderStateMix
       _recordingPath = null;
       _showTagSelector = false;
     });
+    
+    widget.textController.clear();
     _focusNode.unfocus();
-
-    try {
-      final noteController = Provider.of<NoteController>(context, listen: false);
-      await noteController.addNote(
-        text,
-        true,
-        tags: tags,
-        latitude: lat,
-        longitude: lon,
-        locationName: locName,
-        audioPath: audioPath,
-      );
-      HapticFeedback.lightImpact();
-    } catch (e) {
-      HapticFeedback.heavyImpact();
-      debugPrint("Error sending message: $e");
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Failed to send message: ${e.toString()}'),
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
-      }
-    }
+    HapticFeedback.lightImpact();
   }
 
   Future<void> _toggleRecording() async {
@@ -418,49 +407,6 @@ class _ChatInputState extends State<ChatInput> with SingleTickerProviderStateMix
     }
   }
 
-  // Method to remove a global tag (now handles confirmation)
-  Future<void> _confirmAndRemoveGlobalTag(String tag) async {
-     // Ask for confirmation before deleting globally
-     final confirm = await showDialog<bool>(
-       context: context,
-       builder: (context) => AlertDialog(
-         title: const Text('Delete Global Tag?'),
-         content: Text('This will remove #$tag from ALL notes in ALL chats. This action cannot be undone.'),
-         actions: [
-           TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
-           TextButton(
-             onPressed: () => Navigator.pop(context, true),
-             child: const Text('Remove Globally', style: TextStyle(color: Colors.red)),
-           ),
-         ],
-       ),
-     ) ?? false;
-
-     if (!confirm || !mounted) return; // Check mounted after await
-
-     // If confirmed, proceed with removal and state updates
-     try {
-        await _databaseService.batchDeleteTag(tag); // Removes tag from all notes
-        
-        // Update the state directly to remove the tag from the UI
-        setState(() {
-           _availableTags.remove(tag);
-           // Also remove from current selection if present
-           if(_selectedTags.contains(tag)) {
-              _selectedTags.remove(tag);
-           }
-        });
-
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Tag #$tag removed globally'))
-        );
-      } catch (e) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error removing global tag: $e'))
-        );
-      }
-  }
-
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -607,10 +553,6 @@ class _ChatInputState extends State<ChatInput> with SingleTickerProviderStateMix
                  child: InkWell(
                     borderRadius: BorderRadius.circular(16), 
                     onTap: () => _onTagSelected(tag),
-                    onLongPress: () {
-                      HapticFeedback.mediumImpact();
-                      _confirmAndRemoveGlobalTag(tag); 
-                    },
                     child: Chip(
                        label: Text('#$tag'),
                        backgroundColor: chipBackgroundColor,

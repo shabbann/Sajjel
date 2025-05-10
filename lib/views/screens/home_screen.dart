@@ -10,6 +10,7 @@ import './map_screen.dart';
 import 'package:provider/provider.dart';
 import '../../controllers/chat_list_controller.dart';
 import '../../controllers/note_controller.dart';
+import '../screens/map_launcher.dart'; // Import map launcher
 
 class HomeScreen extends StatefulWidget {
   final String? initialChatId;
@@ -24,8 +25,9 @@ class _HomeScreenState extends State<HomeScreen> {
   int _selectedIndex = 0;
   final DatabaseService _databaseService = DatabaseService();
   String _currentChatId = 'default';
-  final PageController _pageController = PageController();
+  late PageController _pageController;
   bool _isInitialized = false;
+  bool _swipeEnabled = true;
 
   // Pre-rendered screens to avoid rebuilding on tab change
   late List<Widget> _preRenderedScreens = [];
@@ -33,8 +35,15 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
-    // Set initial chat ID from widget or use default
+    
+    // Determine the initial chat and index
     _currentChatId = widget.initialChatId ?? 'default';
+    if (_currentChatId != 'default') {
+      _selectedIndex = 1; // Start on the ChatScreen page if initialChatId is valid
+    }
+    
+    // Initialize PageController using the determined _selectedIndex
+    _pageController = PageController(initialPage: _selectedIndex);
     
     // Delay initialization slightly to allow the build context to be available
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -260,74 +269,70 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
-    if (!_isInitialized) {
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
-    }
-    
-    final theme = Theme.of(context);
-    
     return Scaffold(
-      body: PageView(
-        controller: _pageController,
-        onPageChanged: (index) {
-          setState(() {
-            _selectedIndex = index;
-          });
-        },
-        children: _preRenderedScreens,
-      ),
-      bottomNavigationBar: BottomNavigationBar(
-        items: <BottomNavigationBarItem>[
-          _buildNavItem(Icons.list_alt, Icons.list_alt_outlined, 'Chats', 0, theme),
-          _buildNavItem(Icons.chat_bubble, Icons.chat_bubble_outline, 'Notes', 1, theme),
-          _buildNavItem(Icons.map, Icons.map_outlined, 'Map', 2, theme),
-          _buildNavItem(Icons.settings, Icons.settings_outlined, 'Settings', 3, theme),
-        ],
-        currentIndex: _selectedIndex,
-        onTap: _onItemTapped,
-        // Apply theme styles
-        type: BottomNavigationBarType.fixed,
-        backgroundColor: theme.bottomNavigationBarTheme.backgroundColor,
-        selectedItemColor: theme.bottomNavigationBarTheme.selectedItemColor,
-        unselectedItemColor: theme.bottomNavigationBarTheme.unselectedItemColor,
-        elevation: theme.bottomNavigationBarTheme.elevation,
-        showSelectedLabels: false, // Hide labels for a cleaner look
-        showUnselectedLabels: false,
-      ),
-    );
-  }
-  
-  // Helper to build nav items with glow effect
-  BottomNavigationBarItem _buildNavItem(IconData selectedIcon, IconData unselectedIcon, String label, int index, ThemeData theme) {
-    final isSelected = _selectedIndex == index;
-    final color = isSelected 
-        ? theme.bottomNavigationBarTheme.selectedItemColor 
-        : theme.bottomNavigationBarTheme.unselectedItemColor;
-        
-    // Define the even lighter glow effect
-    final glowEffect = isSelected ? [
-      BoxShadow(
-        color: theme.colorScheme.primary.withOpacity(0.08), // Further reduced opacity (from 0.15)
-        blurRadius: 6, // Reduced blur (from 8)
-        spreadRadius: 0,
-      )
-    ] : null;
-
-    return BottomNavigationBarItem(
-      icon: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        padding: const EdgeInsets.all(4),
-        decoration: BoxDecoration(
-          boxShadow: glowEffect,
-          shape: BoxShape.circle,
-        ),
-        child: Icon(
-          isSelected ? selectedIcon : unselectedIcon,
-          color: color,
-          size: isSelected ? 28 : 24, // Slightly larger when selected
-        ),
-      ),
-      label: label, // Label is needed but hidden
+      body: _isInitialized
+          ? PageView(
+              controller: _pageController,
+              onPageChanged: (index) {
+                setState(() {
+                  _selectedIndex = index;
+                });
+              },
+              physics: _swipeEnabled
+                  ? const AlwaysScrollableScrollPhysics()
+                  : const NeverScrollableScrollPhysics(),
+              children: _preRenderedScreens,
+            )
+          : const Center(child: CircularProgressIndicator()),
+      bottomNavigationBar: _isInitialized
+          ? BottomNavigationBar(
+              type: BottomNavigationBarType.fixed,
+              items: const <BottomNavigationBarItem>[
+                BottomNavigationBarItem(
+                  icon: Icon(Icons.chat_bubble_outline),
+                  activeIcon: Icon(Icons.chat_bubble),
+                  label: 'Chats',
+                ),
+                BottomNavigationBarItem(
+                  icon: Icon(Icons.chat_outlined),
+                  activeIcon: Icon(Icons.chat),
+                  label: 'Current',
+                ),
+                BottomNavigationBarItem(
+                  icon: Icon(Icons.map_outlined),
+                  activeIcon: Icon(Icons.map),
+                  label: 'Map',
+                ),
+                BottomNavigationBarItem(
+                  icon: Icon(Icons.settings_outlined),
+                  activeIcon: Icon(Icons.settings),
+                  label: 'Settings',
+                ),
+              ],
+              currentIndex: _selectedIndex,
+              onTap: _onItemTapped,
+              selectedItemColor: Theme.of(context).colorScheme.primary,
+              unselectedItemColor: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
+            )
+          : null,
+      floatingActionButton: _isInitialized && _selectedIndex == 2 // Show only on map tab (index 2)
+          ? FloatingActionButton(
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (context) => const MapLauncherScreen()),
+                );
+              },
+              tooltip: 'Map Testing',
+              child: const Icon(Icons.map_outlined),
+            )
+          : _isInitialized && _selectedIndex == 0 // Show FAB for creating chat on chats tab
+              ? FloatingActionButton(
+                  onPressed: _createNewChat,
+                  tooltip: 'New Chat',
+                  child: const Icon(Icons.add),
+                )
+              : null,
     );
   }
 } 

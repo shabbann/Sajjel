@@ -116,14 +116,31 @@ class NoteController extends ChangeNotifier {
     }
   }
 
-  Future<void> deleteNote(String noteId) async {
+  Future<bool> deleteNote(String noteId, String chatId) async {
+    debugPrint('NoteController: Deleting note: $noteId');
+    setLoading(true);
+    
     try {
-      await databaseService.deleteNote(noteId);
-      await loadNotes();
+      // Delete from the database (which now handles clearing the cache)
+      await databaseService.deleteNote(noteId, chatId);
+      
+      // Force reload notes from the database (not from cache as it's invalidated)
+      debugPrint('NoteController: Reloading notes after deletion');
+      _notes = await databaseService.getNotesByChatId(_currentChatId);
+      
+      // Update the UI
+      setLoading(false);
+      debugPrint('NoteController: Deletion complete and UI updated');
+      return true;
     } catch (e) {
-      debugPrint("Error deleting note: $e");
-      // Rethrow the exception to be handled by the UI layer
-      rethrow;
+      debugPrint('NoteController: Error deleting note: $e');
+      setLoading(false);
+      return false;
     }
+  }
+
+  // A simple method to force UI refresh
+  void refreshUi() {
+    notifyListeners();
   }
 } 

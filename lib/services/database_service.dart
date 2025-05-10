@@ -8,6 +8,12 @@ import 'package:flutter/foundation.dart' show debugPrint;
 class DatabaseService {
   static Database? _database;
   static const int _databaseVersion = 2;
+  
+  // Add a version counter for UI refresh forcing
+  static int _changeVersion = 0;
+  
+  // Getter for the version counter
+  int get changeVersion => _changeVersion;
 
   // Add memory cache for commonly accessed data
   static final Map<String, List<dynamic>> _notesCache = {};
@@ -15,6 +21,35 @@ class DatabaseService {
   static final Map<String, String> _chatNameCache = {};
   static List<Chat> _chatsCache = [];
   static bool _cacheInitialized = false;
+  
+  // Force rebuild notification method
+  static final List<Function()> _listeners = [];
+  
+  // Register a listener for changes
+  void addListener(Function() listener) {
+    _listeners.add(listener);
+  }
+  
+  // Remove a listener
+  void removeListener(Function() listener) {
+    _listeners.remove(listener);
+  }
+  
+  // Notify all listeners of changes
+  void _notifyListeners() {
+    debugPrint('DatabaseService: Notifying ${_listeners.length} listeners of changes');
+    _changeVersion++; // Increment version counter
+    
+    // Create a copy of the listeners list to avoid modification during iteration
+    final listenersCopy = List<Function()>.from(_listeners);
+    for (final listener in listenersCopy) {
+      try {
+        listener();
+      } catch (e) {
+        debugPrint('Error in database change listener: $e');
+      }
+    }
+  }
   
   // Clear cache on app close or when needed
   Future<void> clearCache() async {
@@ -175,7 +210,11 @@ class DatabaseService {
     
     // Update cache
     if (_notesCache.containsKey(note.chatId)) {
+      // Ensure cache updates *before* notifying
       _notesCache[note.chatId]!.add(note);
+    } else {
+      // Invalidate cache for this chat ID to force a reload
+      _notesCache.remove(note.chatId);
     }
     
     // Update tags cache if note has tags
@@ -188,6 +227,10 @@ class DatabaseService {
       }
       _tagsCache[note.chatId] = currentTags;
     }
+    
+    // Notify listeners that the database has changed
+    _notifyListeners(); 
+    debugPrint('DatabaseService: Notified listeners after insertNote for chat ${note.chatId}');
   }
 
   Future<List<dynamic>> getNotesByChatId(String chatId) async {
@@ -382,23 +425,90 @@ class DatabaseService {
 
   Future<void> deleteChat(String chatId) async {
     final db = await database;
-    await db.delete('chats', where: 'id = ?', whereArgs: [chatId]);
-    await db.delete('notes', where: 'chatId = ?', whereArgs: [chatId]);
+    
+    try {
+      // Begin transaction for consistency
+      await db.transaction((txn) async {
+        // Delete chat record
+        await txn.delete('chats', where: 'id = ?', whereArgs: [chatId]);
+        
+        // Delete all notes associated with the chat
+        await txn.delete('notes', where: 'chatId = ?', whereArgs: [chatId]);
+        
+        // Clear caches
+        _notesCache.remove(chatId);
+        _chatNameCache.remove(chatId);
+        _tagsCache.remove(chatId);
+        
+        // Update chats cache
+        _chatsCache = _chatsCache.where((chat) => chat.id != chatId).toList();
+      });
+      
+      // Since we're bypassing the notification system, we'll skip notifying listeners
+      // and let the controller handle UI updates directly
+      debugPrint('DatabaseService: Chat deleted successfully: $chatId');
+    } catch (e) {
+      debugPrint('DatabaseService: Error deleting chat: $e');
+      rethrow;
+    }
   }
 
   Future<void> updateNote(Note note) async {
     final db = await database;
-    await db.update(
+    final count = await db.update(
       'notes',
       note.toMap(),
       where: 'id = ?',
       whereArgs: [note.id],
     );
+
+    // If the update was successful, update the cache
+    if (count > 0 && _notesCache.containsKey(note.chatId)) {
+      final cachedNotes = _notesCache[note.chatId];
+      if (cachedNotes != null) {
+        final index = cachedNotes.indexWhere((n) => n.id == note.id);
+        if (index != -1) {
+          // Replace the old note with the updated one
+          cachedNotes[index] = note; 
+        } else {
+          // If note wasn't in cache (unlikely but possible), just invalidate
+          _notesCache.remove(note.chatId);
+        }
+      }
+    } else if (count > 0) {
+       // If note wasn't in cache, but update happened, invalidate just in case
+       _notesCache.remove(note.chatId);
+    }
   }
 
-  Future<void> deleteNote(String noteId) async {
+  Future<void> deleteNote(String noteId, String chatId) async {
+    debugPrint('DatabaseService: Deleting note $noteId from chat $chatId');
     final db = await database;
-    await db.delete('notes', where: 'id = ?', whereArgs: [noteId]);
+    
+    try {
+      // Begin transaction for consistency
+      await db.transaction((txn) async {
+        // Do the actual delete
+        final count = await txn.delete('notes', where: 'id = ?', whereArgs: [noteId]);
+        debugPrint('DatabaseService: Deleted $count rows');
+        
+        // Forcefully invalidate the cache for this chat
+        _notesCache.remove(chatId);
+        
+        // Also check and clean up tags cache
+        if (_tagsCache.containsKey(chatId)) {
+          _tagsCache.remove(chatId);
+        }
+      });
+      
+      // Notify listeners about the change
+      _notifyListeners();
+      
+      debugPrint('DatabaseService: Note deleted successfully');
+    } catch (e) {
+      debugPrint('DatabaseService: Error deleting note: $e');
+      rethrow;
+    }
   }
 
   Future<List<Note>> searchNotes(String chatId, String query) async {
@@ -604,6 +714,24 @@ class DatabaseService {
     } catch (e) {
       debugPrint('Error removing tag from chat: $e');
       rethrow;
+    }
+  }
+
+  // New method to get all notes from the database
+  Future<List<Note>> getAllNotes() async {
+    final db = await database;
+    try {
+      // Query all notes, ordering by timestamp might still be useful
+      final maps = await db.query('notes', orderBy: 'timestamp ASC');
+      if (maps.isNotEmpty) {
+        // Convert maps to Note objects
+        return maps.map((map) => Note.fromMap(map)).toList();
+      } else {
+        return [];
+      }
+    } catch (e) {
+      debugPrint('Error fetching all notes: $e');
+      return []; // Return empty list on error
     }
   }
 }
