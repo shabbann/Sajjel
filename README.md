@@ -8,4 +8,4 @@ Sajjel (Arabic for "record" or "log") is a mobile app that makes note-taking fee
 Take notes in a familiar chat interface - just type and send, just like texting a friend. Group related thoughts, project notes, or daily logs in separate chat threads.
 
 ---
-(yeah this readme is LLM also)
+(100% vibe coded + yeah this readme is LLM-gen too)
